@@ -2,7 +2,7 @@
 
 Hestia is a planned, terminal-first development container environment for Apple Silicon macOS and Windows through WSL2. The goal is reproducible toolchains and disposable containers without disposable work.
 
-**Status: specification ready; foundation implementation starting.** This repository contains accepted architecture defaults, a Milestone 1 specification, ignore rules, and the first implementation slice: an isolated synthetic build/test fixture under `fixtures/`, verified on macOS arm64. No containers, Compose configuration, or custom CLI are implemented yet. Neither target platform has been validated end to end.
+**Status: specification ready; foundation implementation starting.** This repository contains accepted architecture defaults, a Milestone 1 specification, ignore rules, and the first implementation slices: an isolated synthetic build/test fixture under `fixtures/`, a checkout-derived identity helper under `identity/`, and a canonical minimal Dockerfile (non-root base with mise, linux/arm64), all verified on macOS arm64 with results in the [evidence log](docs/evidence.md). No Compose configuration or custom CLI is implemented yet. Neither target platform has been validated end to end.
 
 ## Intended workflow
 
@@ -31,6 +31,7 @@ Identity and worktree mount planning are part of the foundation; full concurrent
 - [Milestone 1](docs/milestone-1.md): user journey, acceptance checks, pilot boundaries, and open inputs.
 - [Synthetic fixture](fixtures/README.md): nonproprietary build/test fixture for Milestone 1A evidence.
 - [Workspace identity](identity/README.md): bounded checkout-derived identity helper (M1-04).
+- [Evidence log](docs/evidence.md): observed platforms, versions, commands and results per requirement.
 - [Architecture](docs/architecture.md): accepted design defaults, trade-offs, and remaining implementation choices.
 - [Roadmap](docs/roadmap.md): short, acceptance-driven implementation sequence.
 - [Contributor instructions](AGENTS.md): scope, evidence, verification, and safety expectations.
