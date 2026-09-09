@@ -1,0 +1,22 @@
+# Host and editor noise
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# Local configuration and secrets; examples must contain no secrets
+.env
+.env.*
+!.env.example
+mise.local.toml
+.mise.local.toml
+secrets/
+*.key
+*.pem
+
+# Disposable local output
+.cache/
+.tmp/
+*.log
