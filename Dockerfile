@@ -59,6 +59,13 @@ FROM base AS fixture-tools
 
 ENV MISE_PARANOID=1
 
+# Workspace cache root (KSCDG1J): the disposable Linux build/dependency cache
+# volume mounts here. Creating it dev-owned in the image means a fresh volume
+# initializes with ownership the non-root runtime user can write to.
+USER root
+RUN mkdir -p /hestia/cache && chown dev:dev /hestia/cache
+USER dev
+
 # The global toolchain config stays root-owned: the runtime user reads it but
 # cannot modify the image-declared toolchain. The check-out source below is
 # chowned so the non-root build step can remove it again in the same layer.

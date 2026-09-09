@@ -28,6 +28,16 @@ docker compose -f <file> run --rm workspace <command>
 - The Compose project name is the checkout's workspace id from
   [identity](../identity/README.md); Compose namespaces containers, networks
   and volumes from it, with no fixed container names.
+- Durable workspace state lives in `HESTIA_STATE_ROOT/<workspace-id>`
+  (default `~/.local/share/hestia/<workspace-id>`), bound at its identical
+  path. Before generating, the directory's recorded identity is checked
+  (identity helper `--state-dir`): state recorded for a different checkout is
+  refused, and an unwritable state directory fails with an actionable error.
+- Disposable Linux build/dependency caches live in a workspace-scoped Compose
+  volume at `/hestia/cache` (`GOCACHE`, `GOMODCACHE`); the image pre-creates
+  the directory dev-owned so a fresh volume is writable by the non-root user.
+  Nothing mounts over mise's install directories, so image toolchain updates
+  cannot be hidden by old state.
 - Nothing else: no home or repository-collection mount, no host Docker socket,
   no credentials — by construction, asserted in tests.
 
@@ -53,9 +63,12 @@ tickets.
 ## Verified
 
 2026-09-09, macOS 25.6.0 arm64 (Docker server 29.5.2, fixture-tools image):
-`tests/workspace-mounts.test.sh` passed 20/20 — including host/container
+`tests/workspace-mounts.test.sh` passed 29/29 — including host/container
 status agreement, edits visible in both directions, staging inside containers
 for both worktree link layouts without pointer changes, no sibling source or
-Docker socket visible, out-of-bind paths invisible, and clear no-mutation
-failures. Fixtures must live on Docker-shared paths on macOS (home, not
+Docker socket visible, out-of-bind paths invisible, clear no-mutation
+failures, a real in-container `go build`/`go test` on mounted source that
+leaves the tree byte-identical (artifacts only in the cache volume), a native
+host build on the same source with the same result, unwritable-state and
+state-mismatch rejections. Fixtures must live on Docker-shared paths on macOS (home, not
 `/tmp`, which mounts empty — see the [evidence log](../docs/evidence.md)).

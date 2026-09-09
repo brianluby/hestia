@@ -60,14 +60,15 @@ TMPDIR="$tmp_base" "$here/fixtures/bin/make-fixture.sh" >"$root/make-fixture.log
 fx="$(sed -n 's/^root: //p' "$root/make-fixture.log")"
 repo="$fx/repo"
 cp "$repo/NOTES.md" "$root/NOTES.md.orig"
+export HESTIA_STATE_ROOT="$root/hestia-state"
 
 # wrun <workdir> <extra -v binds...> -- handled inline below
 echo "== generator =="
 "$gen" --out "$root/main.yaml" "$repo" 2>/dev/null
 [ -f "$root/main.yaml" ] && ok "compose file written for main checkout" || bad "no compose file"
 grep -q "^name: hestia-" "$root/main.yaml" && ok "project name is the workspace id" || bad "no project name"
-[ "$(grep -c 'type: bind' "$root/main.yaml")" -eq 1 ] &&
-	ok "main checkout: exactly one bind (its .git lives inside it)" || bad "unexpected bind count"
+[ "$(grep -c 'type: bind' "$root/main.yaml")" -eq 2 ] &&
+	ok "main checkout: source + state binds (its .git lives inside it)" || bad "unexpected bind count"
 docker compose -f "$root/main.yaml" config >/dev/null 2>&1 &&
 	ok "generated compose file is valid" || bad "compose file invalid"
 
@@ -97,8 +98,8 @@ echo "== worktrees (docker run with the generator's exact binds) =="
 for wt in wt-abs wt-rel; do
 	wdir="$fx/worktrees/$wt"
 	"$gen" --out "$root/$wt.yaml" "$wdir" 2>/dev/null
-	[ "$(grep -c 'type: bind' "$root/$wt.yaml")" -eq 2 ] &&
-		ok "$wt: checkout + common metadata binds" || bad "$wt: bind count"
+	[ "$(grep -c 'type: bind' "$root/$wt.yaml")" -eq 3 ] &&
+		ok "$wt: checkout + metadata + state binds" || bad "$wt: bind count"
 	binds=(-v "$wdir:$wdir" -v "$repo/.git:$repo/.git"
 		-e GIT_CONFIG_COUNT=2
 		-e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0="$wdir"
@@ -142,7 +143,55 @@ sibling="$(docker run --rm --network none -v "$repo:$repo" -w "$repo" "$image" \
 [ "$sibling" = "absent" ] &&
 	ok "paths outside the declared binds are invisible" || bad "sibling host path leaked into container"
 
+echo "== writes, caches, artifacts, state =="
+grep -q "linux-caches:/hestia/cache" "$root/main.yaml" &&
+	grep -q "GOCACHE: /hestia/cache/go/build" "$root/main.yaml" &&
+	ok "disposable Linux cache volume wired into the compose file" || bad "cache wiring missing"
+ws_id="$(sed -n 's/^name: //p' "$root/main.yaml")"
+[ -f "$HESTIA_STATE_ROOT/$ws_id/identity.record" ] &&
+	ok "durable state dir recorded with the workspace identity" || bad "state record missing"
+
+status_before="$(git -C "$repo" status --porcelain=v2)"
+docker compose -f "$root/main.yaml" run --rm workspace \
+	bash -c "mise trust '$repo' >/dev/null && go build ./... && go test ./..." >"$root/build.log" 2>&1 ||
+	{ cat "$root/build.log" >&2; }
+grep -q "ok  .*example.com/hestia-synthetic/greet" "$root/build.log" &&
+	ok "real go build/test runs inside the container on mounted source" || bad "container build/test failed"
+status_after="$(git -C "$repo" status --porcelain=v2)"
+[ "$status_before" = "$status_after" ] &&
+	ok "container build/test leaves zero trace in the source tree" || bad "build mutated the source tree"
+cache_state="$(docker compose -f "$root/main.yaml" run --rm workspace \
+	sh -c 'test -d /hestia/cache/go/build && ls /hestia/cache/go/build >/dev/null && echo populated || echo empty' 2>/dev/null)"
+[ "$cache_state" = "populated" ] &&
+	ok "Linux build artifacts live in the disposable cache volume" || bad "cache volume not populated: $cache_state"
+
+( cd "$repo" && mise exec -- go build ./... && mise exec -- go test ./... ) >"$root/host-build.log" 2>&1 &&
+	ok "host (native) build/test also passes on the same source" || bad "host build failed"
+status_host_after="$(git -C "$repo" status --porcelain=v2)"
+[ "$status_before" = "$status_host_after" ] &&
+	ok "native and Linux builds never write into each others space (source stays clean)" || bad "host build mutated the tree"
+
+chmod 000 "$HESTIA_STATE_ROOT/$ws_id"
+if HESTIA_STATE_ROOT="$HESTIA_STATE_ROOT" "$gen" --out "$root/nostate.yaml" "$repo" >/dev/null 2>"$root/state.err"; then
+	bad "unwritable state rejected"
+else
+	grep -q "not writable" "$root/state.err" &&
+		ok "unwritable state fails with an actionable error" || bad "unclear state error: $(cat "$root/state.err")"
+fi
+chmod 755 "$HESTIA_STATE_ROOT/$ws_id"
+printf 'canonical: /some/other/checkout\nrepo-group: hestia-x-000000000000\nworkspace: hestia-x-000000000000\n' \
+	>"$HESTIA_STATE_ROOT/$ws_id/identity.record"
+if "$gen" --out "$root/mismatch.yaml" "$repo" >/dev/null 2>"$root/mismatch.err"; then
+	bad "state/checkout mismatch rejected"
+else
+	grep -qE "identity check failed|identity.record" "$root/mismatch.err" &&
+		ok "state recorded for another checkout fails before reuse" || bad "unclear mismatch error: $(cat "$root/mismatch.err")"
+fi
+printf 'canonical: %s\nrepo-group: %s\nworkspace: %s\n' \
+	"$(cd "$repo" && pwd -P)" 	"$(sed -n 's/^repo-group: //p' <<<"$("$here/identity/workspace-id.sh" "$repo")")" 	"$ws_id" >"$HESTIA_STATE_ROOT/$ws_id/identity.record"
+
 echo "== failure modes =="
+
 if "$gen" "$root/no-such-checkout" >"$root/f1.out" 2>"$root/f1.err"; then
 	bad "missing path rejected"
 else
