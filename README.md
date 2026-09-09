@@ -2,7 +2,7 @@
 
 Hestia is a planned, terminal-first development container environment for Apple Silicon macOS and Windows through WSL2. The goal is reproducible toolchains and disposable containers without disposable work.
 
-**Status: specification ready; implementation not started.** This repository contains accepted architecture defaults, a Milestone 1 specification, and ignore rules. No containers, Compose configuration, mise configuration, dependency installation, or custom CLI are implemented. There are no Hestia commands to run yet; neither target platform has been validated.
+**Status: specification ready; foundation implementation starting.** This repository contains accepted architecture defaults, a Milestone 1 specification, ignore rules, and the first implementation slice: an isolated synthetic build/test fixture under `fixtures/`, verified on macOS arm64. No containers, Compose configuration, or custom CLI are implemented yet. Neither target platform has been validated end to end.
 
 ## Intended workflow
 
@@ -29,6 +29,7 @@ Identity and worktree mount planning are part of the foundation; full concurrent
 ## Project notes
 
 - [Milestone 1](docs/milestone-1.md): user journey, acceptance checks, pilot boundaries, and open inputs.
+- [Synthetic fixture](fixtures/README.md): nonproprietary build/test fixture for Milestone 1A evidence.
 - [Architecture](docs/architecture.md): accepted design defaults, trade-offs, and remaining implementation choices.
 - [Roadmap](docs/roadmap.md): short, acceptance-driven implementation sequence.
 - [Contributor instructions](AGENTS.md): scope, evidence, verification, and safety expectations.
