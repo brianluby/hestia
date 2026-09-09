@@ -9,10 +9,10 @@ live in the spec, not here.
 | ID | Status | Evidence |
 | --- | --- | --- |
 | M1-01 | partial | Base image and fixture-toolchain layer verified (below): canonical Dockerfile with named stages, pinned inputs, non-root, offline startup, real fixture build/test in-container. Selected agent layer remains (blocked on `TG7VZBV`). |
-| M1-02 | not run | Mount planning pending (`JP73P2D`). |
+| M1-02 | partial | Scoped mounts verified (below): identical-path source bind, metadata-only worktree bind, no socket/home exposure, host/container agreement. Persistent state mounts and concurrency follow (`KSCDG1J`, `24GJSHY`). |
 | M1-03 | not run | Ownership/artifact separation pending (`KSCDG1J`). |
 | M1-04 | partial | Identity helper verified with 16/16 tests on 2026-09-09 ([identity](../identity/README.md)); container-resource usage pending. |
-| M1-05 | not run | Worktree mount planning pending (`JP73P2D`). |
+| M1-05 | partial | Absolute and relative worktree links resolve in-container; stage/diff without pointer rewriting verified (below). Unsupported layouts fail clearly. Full concurrent workloads follow in Milestone 3. |
 | M1-06 | not run | Lifecycle/persistence proof pending (`24GJSHY`). |
 | M1-07 | not run | Blocked on the human agent decision (`TG7VZBV`). |
 | M1-08 | not run | Cache clearing pending (`HE2GM6N`). |
@@ -84,3 +84,30 @@ of the verified base stage; one Dockerfile, two named targets.
 A macOS `/tmp` bind mount silently produced an empty directory in the
 container (path not in Docker Desktop file sharing); mount proofs must use
 shared paths — noted for the mount-planning ticket.
+
+## Scoped workspace mounts — JP73P2D, 2026-09-09
+
+Host: macOS 25.6.0 arm64, Docker server 29.5.2, fixture-tools image
+`sha256:3031b761...fcc2`. `tests/workspace-mounts.test.sh` passed 20/20.
+
+- **Generated Compose file**: binds the checkout's canonical path at its
+  identical in-container path; linked worktrees additionally bind the common
+  Git directory (metadata only, main source never mounted); project name is
+  the workspace id; no home/repos mount, socket or credentials.
+- **Agreement**: `git status --porcelain=v2` identical host vs container;
+  host-written and container-written marker files each visible from the other
+  side.
+- **Worktrees**: for both the absolute (`wt-abs`) and relative (`wt-rel`)
+  gitdir layouts, `git rev-parse --git-common-dir` resolved in-container and
+  `git add`/`git diff --cached` worked with the `.git` pointer files
+  byte-identical before and after — no pointer rewriting.
+- **Ownership**: host uid 501 vs container uid 1000 triggers git's dubious
+  -ownership refusal; scoped `GIT_CONFIG_*` `safe.directory` entries for
+  exactly the mounted paths (honored by git 2.39.5 in the image) resolve it
+  without blanket trust.
+- **Exposure**: from a worktree container the main checkout's source is not
+  visible (its `.git` metadata is, by design); `/var/run/docker.sock` absent;
+  host paths outside the declared binds are invisible.
+- **Failures**: missing path, dangling `gitdir:` pointer and non-checkout all
+  fail with clear errors; failed generation writes no file; the fixture's
+  captured snapshot still compared clean after the probes (no mutation).
