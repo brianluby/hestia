@@ -9,16 +9,25 @@
 #     container (host tools and the container see the same source), and
 #   - when the checkout is a linked worktree, the common Git directory at
 #     its identical path too — required metadata only; the main checkout's
-#     source is never mounted alongside.
+#     source is never mounted alongside, and
+#   - the workspace's durable state directory (HESTIA_STATE_ROOT/<id>,
+#     default ~/.local/share/hestia/<id>), at its identical path.
+# Linux build/dependency caches (GOCACHE, GOMODCACHE) go to a workspace-scoped
+# disposable Compose volume at /hestia/cache, separate from source, durable
+# state and the image-installed toolchain (nothing is mounted over mise's
+# install dirs, so image updates cannot be hidden by old state).
 # The Compose project name is the checkout's workspace id from
 # identity/workspace-id.sh, so containers, networks and volumes are namespaced
 # per checkout with no fixed container names. No home or repository-collection
 # mount, no host Docker socket, no credentials, by construction.
 #
-# Layouts are validated before anything is written: the checkout must be a Git
-# repository, its .git pointer (if a file) must resolve under the common Git
-# directory, and the metadata must be readable. Unsupported layouts fail with
-# a clear error and no files are written.
+# Layouts and state are validated before anything is written: the checkout
+# must be a Git repository, its .git pointer (if a file) must resolve under
+# the common Git directory, the metadata must be readable, and the state
+# directory's recorded identity must match this checkout (identity/workspace-
+# id.sh --state-dir refuses reuse when the recorded canonical path differs).
+# Unsupported layouts, unwritable state and identity mismatches fail with a
+# clear error and no files are written.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -106,10 +115,19 @@ fi
 # A linked worktree needs the common Git directory mounted; a main checkout
 # already contains it under its own mount.
 own_common="$(cd "$dotgit" 2>/dev/null && pwd -P)" || own_common=""
-binds=("$canonical")
+git_paths=("$canonical")
 if [ "$own_common" != "$common" ]; then
-	binds+=("$common")
+	git_paths+=("$common")
 fi
+
+# Durable state directory: workspace-scoped, identity-checked before reuse.
+state_root="${HESTIA_STATE_ROOT:-$HOME/.local/share/hestia}"
+state_dir="$state_root/$workspace_id"
+if [ -e "$state_dir" ] && [ ! -w "$state_dir" ]; then
+	fail "state directory exists but is not writable: $state_dir — fix its ownership/permissions before starting this workspace"
+fi
+"$wid" --state-dir "$state_dir" "$checkout" >/dev/null 2>&1 ||
+	fail "state identity check failed for $state_dir — it may be recorded for a different checkout; inspect $state_dir/identity.record, then reattach or rehome the state explicitly"
 
 sq() {
 	printf '%s' "$1" | sed "s/'/''/g"
@@ -124,23 +142,30 @@ emit() {
 	echo "    working_dir: '$(sq "$canonical")'"
 	echo "    volumes:"
 	local b
-	for b in "${binds[@]}"; do
+	for b in "${git_paths[@]}" "$state_dir"; do
 		echo "      - type: bind"
 		echo "        source: '$(sq "$b")'"
 		echo "        target: '$(sq "$b")'"
 	done
+	echo "      - linux-caches:/hestia/cache"
 	# Host and container UIDs differ; git only operates on repositories it
 	# considers safely owned. Scope the exception to exactly the mounted
-	# paths via protected environment config (honored since git 2.31;
+	# Git paths via protected environment config (honored since git 2.31;
 	# observed working with the image's git 2.39.5).
 	echo "    environment:"
-	echo "      GIT_CONFIG_COUNT: \"${#binds[@]}\""
+	echo "      GIT_CONFIG_COUNT: \"${#git_paths[@]}\""
 	local i=0
-	for b in "${binds[@]}"; do
+	for b in "${git_paths[@]}"; do
 		echo "      GIT_CONFIG_KEY_$i: safe.directory"
 		echo "      GIT_CONFIG_VALUE_$i: '$(sq "$b")'"
 		i=$((i + 1))
 	done
+	# Disposable Linux build/dependency caches live in the workspace volume,
+	# never in the shared source tree or the durable state directory.
+	echo "      GOCACHE: /hestia/cache/go/build"
+	echo "      GOMODCACHE: /hestia/cache/go/mod"
+	echo "volumes:"
+	echo "  linux-caches:"
 }
 
 if [ -n "$out" ]; then

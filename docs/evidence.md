@@ -10,7 +10,7 @@ live in the spec, not here.
 | --- | --- | --- |
 | M1-01 | partial | Base image and fixture-toolchain layer verified (below): canonical Dockerfile with named stages, pinned inputs, non-root, offline startup, real fixture build/test in-container. Selected agent layer remains (blocked on `TG7VZBV`). |
 | M1-02 | partial | Scoped mounts verified (below): identical-path source bind, metadata-only worktree bind, no socket/home exposure, host/container agreement. Persistent state mounts and concurrency follow (`KSCDG1J`, `24GJSHY`). |
-| M1-03 | not run | Ownership/artifact separation pending (`KSCDG1J`). |
+| M1-03 | pass (fixture scope) | Non-root writes, artifact separation and cache/state classification verified (below). Agent-state mounts remain (`XJVWF4K`). |
 | M1-04 | partial | Identity helper verified with 16/16 tests on 2026-09-09 ([identity](../identity/README.md)); container-resource usage pending. |
 | M1-05 | partial | Absolute and relative worktree links resolve in-container; stage/diff without pointer rewriting verified (below). Unsupported layouts fail clearly. Full concurrent workloads follow in Milestone 3. |
 | M1-06 | not run | Lifecycle/persistence proof pending (`24GJSHY`). |
@@ -111,3 +111,32 @@ Host: macOS 25.6.0 arm64, Docker server 29.5.2, fixture-tools image
 - **Failures**: missing path, dangling `gitdir:` pointer and non-checkout all
   fail with clear errors; failed generation writes no file; the fixture's
   captured snapshot still compared clean after the probes (no mutation).
+
+## Writes, caches and artifact separation — KSCDG1J, 2026-09-09
+
+Host: macOS 25.6.0 arm64, Docker server 29.5.2; image rebuilt with a
+dev-owned `/hestia/cache` (`sha256:df7e77d2...e05e`). Extended
+`tests/workspace-mounts.test.sh` passed 29/29.
+
+- **Effective ownership (this runtime):** the non-root container user
+  (uid 1000 `dev`) reads and writes the VirtioFS-mounted host source and the
+  mounted state/cache paths directly; copying the host UID is not used and no
+  host-side chown exists anywhere in the helpers (recursive host chown as a
+  "repair" is ruled out by construction, per ADR-001).
+- **Artifact separation:** a real in-container `go build ./... && go test ./...`
+  on the mounted fixture source (after one deliberate `mise trust` of the
+  repo, exercising the paranoid default) passed and left `git status
+  --porcelain=v2` byte-identical; its artifacts went only to the
+  workspace-scoped `linux-caches` volume (`GOCACHE`/`GOMODCACHE`), verified
+  populated afterwards. A native host `mise exec -- go build/test` on the same
+  source also passed and also left the tree unchanged — host and container
+  outputs live in disjoint caches (host `~/Library/Caches` vs the volume), so
+  they cannot overwrite each other through the shared tree.
+- **Caches vs durable data:** disposable = the `linux-caches` Compose volume
+  only; durable = the identity-recorded state directory; source/Git = host
+  storage never written by builds. Nothing mounts over mise's install
+  directories, so image toolchain updates cannot be hidden by old state.
+- **State failures:** an unwritable state directory fails generation with
+  `state directory exists but is not writable: <path> — fix its
+  ownership/permissions...`; a state directory recorded for a different
+  checkout is refused before any file is written.
