@@ -1,0 +1,4 @@
+# Synthetic fixture toolchain for the Milestone 1A build/test (SKSJTMN).
+# Version observed via `mise ls-remote go` on 2026-09-09 (latest stable release).
+[tools]
+go = "1.27.1"
