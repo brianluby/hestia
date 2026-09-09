@@ -10,17 +10,21 @@
 #   remove-runtime <file>  remove the workspace container; volumes/state retained
 #   recreate <file>        stop, remove runtime and start again; asserts the
 #                          replacement has a different container ID
+#   clear-caches <file>    remove ONLY this workspace's linux-caches volume
+#                          (identity-verified) and restart with a fresh one
 #
 # These are thin, explicit wrappers over docker compose — no custom engine.
-# The helper never runs `down -v`, never prunes, never deletes volumes or
-# source: routine lifecycle preserves all durable data by construction.
+# The helper never runs `down -v`, never prunes, never deletes source, and
+# the only volume it ever removes is the workspace's own linux-caches volume
+# — after verifying both its exact name and that this Compose file declares
+# it. Durable state directories and any other volumes are never touched.
 # Destructive-adjacent operations (remove-runtime, recreate) additionally
 # refuse projects whose Compose name is not a Hestia workspace id, so the
 # helper cannot be pointed at an unrelated project by mistake.
 set -euo pipefail
 
 usage() {
-	echo "usage: workspace-lifecycle.sh <validate|start|attach|stop|remove-runtime|recreate> <compose-file> [cmd...]" >&2
+	echo "usage: workspace-lifecycle.sh <validate|start|attach|stop|remove-runtime|recreate|clear-caches> <compose-file> [cmd...]" >&2
 	exit 2
 }
 
@@ -103,6 +107,23 @@ recreate)
 		fail "replacement kept the same container ID ($after); refusing to claim recreation"
 	fi
 	echo "recreated: $before -> $after"
+	;;
+clear-caches)
+	dc config --volumes 2>/dev/null | grep -qx "linux-caches" ||
+		fail "this workspace declares no linux-caches volume; refusing to clear anything"
+	volume="${project}_linux-caches"
+	docker volume inspect "$volume" >/dev/null 2>&1 ||
+		fail "cache volume not found: $volume (nothing to clear)"
+	if [ -n "$(cid)" ]; then
+		echo "stopping workspace first — finish active work before clearing caches"
+		dc stop workspace >/dev/null
+		dc rm -sf workspace >/dev/null
+	fi
+	docker volume rm "$volume" >/dev/null ||
+		fail "could not remove cache volume $volume"
+	dc up -d workspace >/dev/null
+	wait_running
+	echo "cleared $volume; workspace restarted with a fresh cache volume"
 	;;
 *)
 	usage

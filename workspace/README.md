@@ -1,6 +1,6 @@
 # Workspace mounts
 
-[ADR-001](../docs/architecture.md) · Tickets `JP73P2D` `KSCDG1J` `24GJSHY` · [Mount tests](../tests/workspace-mounts.test.sh) · [Lifecycle tests](../tests/workspace-lifecycle.test.sh)
+[ADR-001](../docs/architecture.md) · Tickets `JP73P2D` `KSCDG1J` `24GJSHY` `HE2GM6N` · [Mount tests](../tests/workspace-mounts.test.sh) · [Lifecycle tests](../tests/workspace-lifecycle.test.sh) · [Cache-clear tests](../tests/workspace-cache-clear.test.sh)
 
 `workspace/workspace-compose.sh` generates a scoped Compose definition for one
 checkout. It is a helper, not a Hestia command: the output is an ordinary
@@ -29,6 +29,7 @@ attachable; `compose run` overrides that for one-off commands.
 | `stop <file>` | Stop; container, volumes and state retained |
 | `remove-runtime <file>` | Remove the container; volumes and state retained |
 | `recreate <file>` | Stop (finish active work first), remove runtime, start again — fails if the replacement container ID is not different |
+| `clear-caches <file>` | Remove only this workspace's `linux-caches` volume (name and declaration verified) and restart with a fresh one; durable state and source untouched |
 
 The helper never runs `down -v`, prunes, deletes volumes or touches source.
 `remove-runtime`/`recreate` refuse Compose projects whose name is not a
@@ -93,8 +94,9 @@ tickets.
 ## Verified
 
 2026-09-09, macOS 25.6.0 arm64 (Docker server 29.5.2, fixture-tools image):
-`tests/workspace-mounts.test.sh` passed 29/29 and
-`tests/workspace-lifecycle.test.sh` passed 14/14 — including host/container
+`tests/workspace-mounts.test.sh` passed 29/29,
+`tests/workspace-lifecycle.test.sh` 14/14 and
+`tests/workspace-cache-clear.test.sh` 10/10 — including host/container
 status agreement, edits visible in both directions, staging inside containers
 for both worktree link layouts without pointer changes, no sibling source or
 Docker socket visible, out-of-bind paths invisible, clear no-mutation
