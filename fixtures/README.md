@@ -40,7 +40,8 @@ so cleanup can only touch what this fixture made.
 2026-09-09, macOS 25.6.0 arm64, mise 2026.9.3, Go 1.27.1 via mise: fixture
 created, relative worktree links resolved without repair, build and test passed
 inside the dirty tree, snapshot captured and a no-change `compare` came back
-clean. Hestia containers have not run this fixture yet; that starts with the
-image work (`61Q7E8F`).
+clean. The fixture build/test has also passed inside the `fixture-tools`
+image stage ([evidence](../docs/evidence.md)); the host-mounted workspace
+flow follows with mount planning (`JP73P2D`).
 
 These are fixture helpers, not Hestia commands; Hestia has no CLI.
