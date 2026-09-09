@@ -10,3 +10,4 @@
 {"v":1,"id":["01M23ZDCGW37R62Q2PDP38AK6N","01M23ZDCGV795WAZYWBRJMWWGH"],"lock.node":{"id":"00KM6CZ900T7180RM46K0JAYNF"}}
 {"v":1,"id":["01M246CXP34C4Z8TJA2H7NXN42","01M245286M4W6K6RWSNNPN0529"],"add.issue.comment":{"id":"01M246CXNP8XKWC727PAKG9R6H","issue":"01M240CYGNPEMMNMWYSTG7VZBV","md":"We will implement omp as the first agent selection.","author":"01M23Z8200Q978KAKMV3H133VF"}}
 {"v":1,"id":["01M246EQ9CMTJ4EPK58CTVAZG5","01M246CXP34C4Z8TJA2H7NXN42"],"add.issue.comment":{"id":"01M246EQ9CWE7B5FZ7CS1BQW8Z","issue":"01M240D0NMW5RK6BN1B4PE9B37","md":"I have those ready when we are ready to spin this up on the work laptop.","author":"01M23Z8200Q978KAKMV3H133VF"}}
+{"v":1,"id":["01M246WEMZ5HVWSYP82H68JBNB","01M246EQ9CMTJ4EPK58CTVAZG5"],"add.issue.comment":{"id":"01M246WEMZW526KH77S1V0RV71","issue":"01M240ET2BZR1R8XQ6RXJVWF4K","md":"This one appears ready now that TG7VZBV and 4PE9B37 are answered. Let me know if you need more.","author":"01M23Z8200Q978KAKMV3H133VF"}}
