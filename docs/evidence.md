@@ -13,7 +13,7 @@ live in the spec, not here.
 | M1-03 | pass (fixture scope) | Non-root writes, artifact separation and cache/state classification verified (below). Agent-state mounts remain (`XJVWF4K`). |
 | M1-04 | partial | Identity helper verified with 16/16 tests on 2026-09-09 ([identity](../identity/README.md)); container-resource usage pending. |
 | M1-05 | partial | Absolute and relative worktree links resolve in-container; stage/diff without pointer rewriting verified (below). Unsupported layouts fail clearly. Full concurrent workloads follow in Milestone 3. |
-| M1-06 | not run | Lifecycle/persistence proof pending (`24GJSHY`). |
+| M1-06 | partial | Lifecycle verified for fixture scope (below): stop/start, remove-runtime, recreate with a different container ID, durable state/source/Git/cache preservation, build/tests passing again. Selected agent-state resumption is M1-07. |
 | M1-07 | not run | Blocked on the human agent decision (`TG7VZBV`). |
 | M1-08 | not run | Cache clearing pending (`HE2GM6N`). |
 | M1-09 | partial | Failed-download behavior, missing-tool errors and trust gating verified for the image (below); other failure classes pending. |
@@ -140,3 +140,29 @@ dev-owned `/hestia/cache` (`sha256:df7e77d2...e05e`). Extended
   `state directory exists but is not writable: <path> — fix its
   ownership/permissions...`; a state directory recorded for a different
   checkout is refused before any file is written.
+
+## Workspace lifecycle — 24GJSHY, 2026-09-09
+
+Host: macOS 25.6.0 arm64, Docker server 29.5.2, fixture-tools image.
+`tests/workspace-lifecycle.test.sh` passed 14/14 on a fresh fixture
+(`workspace/workspace-lifecycle.sh` over a generated Compose file).
+
+- **Start/attach:** `start` brings the workspace up detached
+  (`command: sleep infinity` in the generated service); `attach` runs a
+  shell or command in the running container via `compose exec`.
+- **Durable write:** a marker written through the attached container landed
+  in the workspace state directory on the host.
+- **Stop/start:** `stop` retained the container; the next `start` reused the
+  identical container ID — the workspace stays attachable across stops.
+- **Recreate:** stop → remove-runtime → start produced a different container
+  ID (verified, and the helper fails if it ever does not); the durable state
+  marker survived, the fixture's captured snapshot still compared clean
+  (source bytes, index/tree, HEAD/branch, status incl. untracked all
+  unchanged), the `linux-caches` volume survived, and a real
+  `go build`/`go test` (after one deliberate `mise trust`) passed inside the
+  replacement container.
+- **Safety:** the helper refuses Compose projects whose name is not a Hestia
+  workspace id; it contains no `down -v`, no prune, no volume deletion and no
+  source deletion. Recovery and offline-startup limits are documented in
+  `workspace/README.md` (warm startup needs the image locally; startup never
+  downloads).

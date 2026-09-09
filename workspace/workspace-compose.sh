@@ -140,6 +140,9 @@ emit() {
 	echo "  workspace:"
 	echo "    image: $image"
 	echo "    working_dir: '$(sq "$canonical")'"
+	# Keep the workspace running so it can be attached to; `compose run`
+	# overrides this with the requested command.
+	echo "    command: [\"sleep\", \"infinity\"]"
 	echo "    volumes:"
 	local b
 	for b in "${git_paths[@]}" "$state_dir"; do
