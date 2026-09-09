@@ -1,17 +1,28 @@
 # Roadmap
 
-[Project overview](../README.md) · [Proposed architecture](architecture.md)
+[Project overview](../README.md) · [Architecture decisions](architecture.md) · [Milestone 1 spec](milestone-1.md)
 
-The scaffold is the current state. The following are implementation milestones, in acceptance order, not delivered features or deadlines. Select tools and resolve architecture choices only as needed for the next proof. Record the actual platform, versions, actions, and results; no executable Hestia commands are promised here.
+The current state is documentation only: architecture defaults and the first milestone are specified, with implementation and all runtime checks pending. These milestones describe acceptance order, not delivered features or deadlines. Record actual platforms, versions, actions, and results. Lifecycle names do not imply an implemented Hestia CLI.
 
-## 1. One real repository, end to end
+## 1. Foundation and Argus pilot
 
-On Apple Silicon macOS:
+The [Milestone 1 spec](milestone-1.md) defines requirements M1-01 through M1-09 and evidence expectations.
 
-- Open an existing, real repository in a terminal workspace built through the canonical image/Compose path, using its toolchains through mise.
-- Use one selected terminal agent to make a reviewable change and run the repository's real build and tests successfully inside the container. A shell prompt or agent version check alone is not acceptance; supporting every candidate agent is not required for this proof.
-- Record source/Git and selected durable state, including staged, unstaged, and untracked work. Remove and recreate the container, not merely restart it. Confirm the work and state remain usable, then rerun the build and tests successfully.
-- Inspect the effective mounts: no default host Docker socket or broad credential/home-directory exposure. Record dependency integrity evidence for the tested architecture.
+### 1A. Nonproprietary foundation
+
+- On the available Apple Silicon Mac, use a synthetic repository with an actual build/test, declared mise toolchain, dirty Git states and linked-worktree fixture.
+- Establish the canonical build path, effective permissions, host source access, artifact separation and lifecycle behavior.
+- Validate deterministic identities for matching directory names and worktrees, path-consistent Git metadata mounts, and synthetic state persistence. These fundamentals must precede later concurrency proofs.
+- Integrate one selected agent and verify recreation with source/state comparisons, real file operations and isolated resources. No employer source, credentials or endpoints are required here.
+
+### 1B. Argus on the employer work laptop
+
+- Confirm laptop OS/CPU/runtime, selected agent and Argus toolchain/build/test/service requirements there.
+- Use the real agent to make a reviewable change, build/test Argus, remove/recreate the workspace, resume selected state and build/test again.
+- Keep source, credentials, employer-specific configuration and detailed evidence on the work laptop. Share only sanitized outcomes appropriate for Hestia documentation.
+- If this laptop uses Windows/WSL2, exercise its pilot path now. The broader matrix in Milestone 5 is additional coverage.
+
+Milestone 1 closes only after the Argus journey and M1 requirements pass. Fixture success, a running shell, or a version check alone is insufficient. There are no completed runtime checks yet.
 
 ## 2. Concurrent projects
 
@@ -19,9 +30,9 @@ On Apple Silicon macOS:
 - Show distinct workspace identities and no unintended source/state sharing or service-name/port collisions. Build and test each repository.
 - Recreate one project's container and show that the other remains usable and its durable work is unchanged.
 
-## 3. Explicit Git worktrees
+## 3. Concurrent Git worktree workflows
 
-- Open a main checkout and a linked worktree in distinct workspaces. Demonstrate that Git resolves the shared metadata correctly and each workspace builds and tests its intended branch through a terminal agent.
+- Extend Milestone 1's worktree identity/mount checks to simultaneous real workflows. Open a main checkout and a linked worktree in distinct workspaces; each builds and tests its intended branch through a terminal agent.
 - Recreate one container; confirm both workspaces retain their changes and Git operations still work. Access to shared metadata must not require a broad host home mount.
 
 ## 4. Backup and restore
@@ -31,7 +42,7 @@ On Apple Silicon macOS:
 
 ## 5. Windows through WSL2
 
-- Repeat the single-repository, concurrent-project, worktree, and backup/restore proofs on an actual Windows/WSL2 host using the same canonical build definition, not a platform fork.
+- Repeat the single-repository, concurrent-project, worktree, and backup/restore proofs on an actual Windows/WSL2 host using the same canonical build definition, not a platform fork. Expand any Windows evidence already collected during the Argus pilot.
 - Record the runtime, CPU architecture, source filesystem placement, path/permission behavior, and any limitations. Verify architecture-specific dependencies and builds for the tested host architectures; claim support only for the matrix exercised.
 
 Browser IDE and voice input remain optional future considerations, not milestones or prerequisites for this sequence. A custom CLI and agent orchestration are outside the initial scope.
