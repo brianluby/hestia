@@ -30,6 +30,7 @@ Identity and worktree mount planning are part of the foundation; full concurrent
 
 - [Milestone 1](docs/milestone-1.md): user journey, acceptance checks, pilot boundaries, and open inputs.
 - [Synthetic fixture](fixtures/README.md): nonproprietary build/test fixture for Milestone 1A evidence.
+- [Workspace identity](identity/README.md): bounded checkout-derived identity helper (M1-04).
 - [Architecture](docs/architecture.md): accepted design defaults, trade-offs, and remaining implementation choices.
 - [Roadmap](docs/roadmap.md): short, acceptance-driven implementation sequence.
 - [Contributor instructions](AGENTS.md): scope, evidence, verification, and safety expectations.
