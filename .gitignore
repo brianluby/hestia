@@ -20,3 +20,7 @@ secrets/
 .cache/
 .tmp/
 *.log
+
+# [epiq]: local hydrated state is never committed
+.epiq/events/
+.epiq/log/
