@@ -8,7 +8,7 @@ live in the spec, not here.
 
 | ID | Status | Evidence |
 | --- | --- | --- |
-| M1-01 | partial | Base image slice verified (below): canonical Dockerfile, pinned inputs, non-root, offline startup. Selected toolchain/agent layers remain (`WGHQ2GW`). |
+| M1-01 | partial | Base image and fixture-toolchain layer verified (below): canonical Dockerfile with named stages, pinned inputs, non-root, offline startup, real fixture build/test in-container. Selected agent layer remains (blocked on `TG7VZBV`). |
 | M1-02 | not run | Mount planning pending (`JP73P2D`). |
 | M1-03 | not run | Ownership/artifact separation pending (`KSCDG1J`). |
 | M1-04 | partial | Identity helper verified with 16/16 tests on 2026-09-09 ([identity](../identity/README.md)); container-resource usage pending. |
@@ -16,7 +16,7 @@ live in the spec, not here.
 | M1-06 | not run | Lifecycle/persistence proof pending (`24GJSHY`). |
 | M1-07 | not run | Blocked on the human agent decision (`TG7VZBV`). |
 | M1-08 | not run | Cache clearing pending (`HE2GM6N`). |
-| M1-09 | partial | Failed-download behavior verified for the image build (below); other failure classes pending. |
+| M1-09 | partial | Failed-download behavior, missing-tool errors and trust gating verified for the image (below); other failure classes pending. |
 
 ## Base image — 61Q7E8F, 2026-09-09
 
@@ -50,3 +50,37 @@ Host: macOS 25.6.0 arm64, Docker server 29.5.2 (linux/aarch64), docker CLI
   socket, no credentials or login state.
 
 Only `linux/arm64` is exercised; no multi-arch or Windows support is claimed.
+
+## Fixture toolchain layer — WGHQ2GW, 2026-09-09
+
+Host: macOS 25.6.0 arm64, Docker server 29.5.2. Stage `fixture-tools` on top
+of the verified base stage; one Dockerfile, two named targets.
+
+- **Build:** `docker build --target fixture-tools .` — 17 s. Image
+  `sha256:3031b761d8a98917f6298b6ee3cbceb47776dae67d07d9012b5cda94eef0fcc2`,
+  `linux/arm64`, 227,971,940 bytes, default user `dev`. The base target
+  rebuilds to the identical base image ID (one canonical build path).
+- **Toolchain:** go 1.27.1 (from the fixture's `mise.toml` pin) installed by
+  `mise install` at build time only; the global toolchain config is
+  root-owned, readable but not modifiable by the runtime user. The fixture
+  build/test ran inside the build (`go build ./...`, `go test ./...` →
+  `ok example.com/hestia-synthetic/greet`); its source was removed in the
+  same layer and does not ship in the image.
+- **Startup installs nothing:** `docker run --rm --network none` →
+  `mise exec -- go version` → `go1.27.1 linux/arm64` with no downloads.
+- **Missing tool fails clearly:** `mise exec -- node` →
+  `mise ERROR "node" couldn't exec process` with non-zero exit.
+- **Trust gating (deliberate trust):** mise 2026.9.4 normal mode auto-trusts
+  a project's active config — observed directly: a never-trusted mounted
+  `mise.toml`'s task executed unchallenged. The image therefore sets
+  `MISE_PARANOID=1`. Verified cycle with a mounted config: untrusted →
+  blocked (`Config files in /demo/mise.toml are not trusted. Trust them with
+  'mise trust'.`); after `mise trust` → task runs; after editing the file →
+  blocked again (content-bound); after re-trust → new content runs. The
+  image's own global config stays usable without prompting. mise documents
+  that paranoid mode also disables trust sharing across git worktrees —
+  relevant to the worktree mount work (`JP73P2D`).
+
+A macOS `/tmp` bind mount silently produced an empty directory in the
+container (path not in Docker Desktop file sharing); mount proofs must use
+shared paths — noted for the mount-planning ticket.
