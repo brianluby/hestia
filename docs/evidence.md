@@ -15,7 +15,7 @@ live in the spec, not here.
 | M1-05 | partial | Absolute and relative worktree links resolve in-container; stage/diff without pointer rewriting verified (below). Unsupported layouts fail clearly. Full concurrent workloads follow in Milestone 3. |
 | M1-06 | partial | Lifecycle verified for fixture scope (below): stop/start, remove-runtime, recreate with a different container ID, durable state/source/Git/cache preservation, build/tests passing again. Selected agent-state resumption is M1-07. |
 | M1-07 | not run | Blocked on the human agent decision (`TG7VZBV`). |
-| M1-08 | not run | Cache clearing pending (`HE2GM6N`). |
+| M1-08 | pass (fixture scope) | Scoped cache clearing verified (below): only the workspace cache volume removed, durable state and source/Git unchanged, caches regenerate, build/tests pass again. |
 | M1-09 | partial | Failed-download behavior, missing-tool errors and trust gating verified for the image (below); other failure classes pending. |
 
 ## Base image — 61Q7E8F, 2026-09-09
@@ -166,3 +166,24 @@ Host: macOS 25.6.0 arm64, Docker server 29.5.2, fixture-tools image.
   source deletion. Recovery and offline-startup limits are documented in
   `workspace/README.md` (warm startup needs the image locally; startup never
   downloads).
+
+## Scoped cache clearing — HE2GM6N, 2026-09-09
+
+Host: macOS 25.6.0 arm64, Docker server 29.5.2. `workspace-lifecycle.sh
+clear-caches` over a generated workspace; `tests/workspace-cache-clear.test.sh`
+passed 10/10 on a fresh fixture.
+
+- **Target identity before removal:** the command removes exactly
+  `<workspace-id>_linux-caches` and only after verifying that the Compose file
+  itself declares a `linux-caches` volume; a workspace without one, a missing
+  file and any non-Hestia project are refused. No global prune, no other
+  volumes, no state directories.
+- **Clearing:** stops the workspace (finish active work), removes the runtime
+  and the volume, restarts — the fresh volume initializes empty from the
+  image's dev-owned `/hestia/cache` (verified: no `go/build` dir afterwards).
+- **Preservation:** source bytes, index/tree, HEAD/branch and full status
+  (snapshot compare) and the durable state directory (marker + identity
+  record) were unchanged across the clear.
+- **Regeneration:** a second in-container `go build`/`go test` (after one
+  deliberate `mise trust`) passed with the caches rebuilt into the fresh
+  volume.
