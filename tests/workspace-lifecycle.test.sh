@@ -25,6 +25,10 @@ if ! docker info >/dev/null 2>&1; then
 	echo "SKIP: docker daemon not reachable"
 	exit 0
 fi
+if ! docker compose version >/dev/null 2>&1; then
+	echo "SKIP: docker compose v2 plugin not available"
+	exit 0
+fi
 if ! docker image inspect "$image" >/dev/null 2>&1; then
 	echo "SKIP: image $image not built (docker build --target fixture-tools -t $image .)"
 	exit 0
@@ -35,6 +39,13 @@ mkdir -p "$tmp_base"
 root="$(mktemp -d "$tmp_base/hestia-lifecycle-XXXXXXXX")"
 fx=""
 cleanup() {
+	# Keep artifacts for inspection when anything failed (or KEEP_ARTIFACTS=1);
+	# containers are still torn down, files are preserved.
+	cleanup_compose >/dev/null 2>&1 || true
+	if [ "${fail:-0}" -gt 0 ] || [ "${KEEP_ARTIFACTS:-0}" = "1" ]; then
+		echo "preserving artifacts for inspection: $root (fixture: ${fx:-n/a})" >&2
+		return 0
+	fi
 	[ -n "$fx" ] && rm -rf "$fx"
 	rm -rf "$root"
 	return 0
@@ -57,7 +68,12 @@ TMPDIR="$tmp_base" "$here/fixtures/bin/make-fixture.sh" >"$root/make-fixture.log
 	echo "FAIL - fixture creation"
 	exit 1
 }
-fx="$(sed -n 's/^root: //p' "$root/make-fixture.log")"
+fx_count="$(grep -c '^root: ' "$root/make-fixture.log")"
+fx="$(sed -n 's/^root: //p' "$root/make-fixture.log" | head -1)"
+if [ "$fx_count" -ne 1 ] || [ -z "$fx" ] || [ ! -d "$fx" ]; then
+	echo "FAIL - fixture root not uniquely parsed from make-fixture log" >&2
+	exit 1
+fi
 repo="$fx/repo"
 
 "$gen" --out "$root/ws.yaml" "$repo" 2>/dev/null
@@ -66,6 +82,8 @@ repo="$fx/repo"
 	exit 1
 }
 ws_id="$(sed -n 's/^name: //p' "$root/ws.yaml")"
+printf '%s' "$ws_id" | grep -Eq '^hestia-[a-z0-9][a-z0-9-]{0,23}-[0-9a-f]{12}$' ||
+	{ echo "FAIL - malformed workspace id parsed from generated file: $ws_id" >&2; exit 1; }
 
 cleanup_compose() {
 	"$life" remove-runtime "$root/ws.yaml" >/dev/null 2>&1 || true
@@ -116,9 +134,23 @@ marker="$(docker compose -f "$root/ws.yaml" exec -T workspace cat "$state_dir/ma
 docker volume inspect "${ws_id}_linux-caches" >/dev/null 2>&1 &&
 	ok "cache volume survives recreation" || bad "cache volume missing"
 
+echo "== remove-runtime =="
+if "$life" remove-runtime "$root/ws.yaml" >"$root/rm.log" 2>&1; then
+	ok "remove-runtime succeeds"
+else
+	bad "remove-runtime failed: $(tail -1 "$root/rm.log")"
+fi
+[ -z "$(docker compose -f "$root/ws.yaml" ps -aq workspace 2>/dev/null)" ] &&
+	ok "remove-runtime leaves no workspace container" || bad "container still present after remove-runtime"
+[ "$(cat "$state_dir/marker.txt" 2>/dev/null)" = "durable-marker" ] &&
+	ok "durable state survives remove-runtime" || bad "state lost on remove-runtime"
+docker volume inspect "${ws_id}_linux-caches" >/dev/null 2>&1 &&
+	ok "cache volume survives remove-runtime" || bad "cache volume removed by remove-runtime"
+"$life" start "$root/ws.yaml" >/dev/null 2>&1
+
 echo "== build/test after recreation =="
 docker compose -f "$root/ws.yaml" exec -T workspace \
-	bash -c "mise trust '$repo' >/dev/null && go build ./... && go test ./..." >"$root/rebuild.log" 2>&1 ||
+	bash -c "mise trust '$repo' >/dev/null && go build ./... && go test -count=1 ./..." >"$root/rebuild.log" 2>&1 ||
 	{ cat "$root/rebuild.log" >&2; }
 grep -q "ok  .*example.com/hestia-synthetic/greet" "$root/rebuild.log" &&
 	ok "build/tests pass again after recreation" || bad "post-recreation build/test failed"

@@ -7,9 +7,21 @@
 # aliases collapsing, and reuse of recorded state failing safely on path
 # mismatch or id collision.
 set -euo pipefail
+# Hermetic Git: ignore the developer's global/system configuration entirely.
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 wid="$here/identity/workspace-id.sh"
+
+# Preflight: a missing or broken helper must not masquerade as passing tests.
+[ -f "$wid" ] && [ -x "$wid" ] || {
+	echo "FAIL - identity helper missing or not executable: $wid" >&2
+	exit 1
+}
+bash -n "$wid" || {
+	echo "FAIL - identity helper has syntax errors" >&2
+	exit 1
+}
 
 tmp_base="${TMPDIR:-/tmp}"
 root="$(mktemp -d "${tmp_base%/}/hestia-id-test-XXXXXXXX")"
@@ -52,6 +64,17 @@ make_repo "$root/a/abcdefghijklmnopqrstuvwxyz012345"
 longid="$(wsid "$root/a/abcdefghijklmnopqrstuvwxyz012345")"
 echo "$longid" | grep -q '^hestia-abcdefghijklmnopqrstuvwx-[0-9a-f]\{12\}$' &&
 	ok "long label truncated to 24" || bad "long label: $longid"
+make_repo "$root/a/!!!"
+bangid="$(wsid "$root/a/!!!")"
+echo "$bangid" | grep -q '^hestia-repo-[0-9a-f]\{12\}$' &&
+	ok "empty sanitized label falls back to repo" || bad "fallback label: $bangid"
+make_repo "$root/a/Ünïcode-Répo"
+uniid="$(wsid "$root/a/Ünïcode-Répo")"
+echo "$uniid" | grep -Eq '^hestia-[a-z0-9][a-z0-9-]{0,23}-[0-9a-f]{12}$' &&
+	ok "non-ASCII basename yields a valid deterministic id" || bad "non-ASCII id: $uniid"
+dashid="$("$wid" -- "$root/a/Ünïcode-Répo" | sed -n 's/^workspace: //p')"
+[ "$dashid" = "$uniid" ] &&
+	ok "-- terminator accepted before the path" || bad "-- terminator changed the result"
 
 echo "== distinct paths, worktrees, stability =="
 make_repo "$root/x/collide"
