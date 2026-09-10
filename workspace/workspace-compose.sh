@@ -145,7 +145,17 @@ if [ "$own_common" != "$common" ]; then
 fi
 
 # Durable state directory: workspace-scoped, identity-checked before reuse.
+# A relative root is rejected outright: the record would be written relative
+# to the generator's working directory while Compose resolves bind sources
+# relative to the generated file's directory, so the two ends would silently
+# disagree (review finding 5).
 state_root="${HESTIA_STATE_ROOT:-$HOME/.local/share/hestia}"
+case "$state_root" in
+/*) : ;;
+*)
+	fail "HESTIA_STATE_ROOT must be an absolute path; got the relative '$state_root' (its meaning would differ between the generator's and the Compose file's directories)"
+	;;
+esac
 state_dir="$state_root/$workspace_id"
 if [ -e "$state_dir" ] && [ ! -w "$state_dir" ]; then
 	fail "state directory exists but is not writable: $state_dir — fix its ownership/permissions before starting this workspace"
