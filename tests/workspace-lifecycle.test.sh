@@ -155,6 +155,25 @@ docker compose -f "$root/ws.yaml" exec -T workspace \
 grep -q "ok  .*example.com/hestia-synthetic/greet" "$root/rebuild.log" &&
 	ok "build/tests pass again after recreation" || bad "post-recreation build/test failed"
 
+echo "== identity revalidation of the saved file =="
+record="$state_dir/identity.record"
+cp "$record" "$root/record.orig"
+sed -i.bak "s|^canonical: .*|canonical: /some/other/checkout|" "$record"
+if "$life" validate "$root/ws.yaml" >/dev/null 2>&1; then
+	bad "validate must fail when the state record names another checkout"
+else
+	ok "validate fails on a tampered state record"
+fi
+if "$life" start "$root/ws.yaml" >/dev/null 2>&1; then
+	bad "start must fail when the state record names another checkout"
+	docker compose -f "$root/ws.yaml" down --remove-orphans >/dev/null 2>&1
+else
+	ok "start fails on a tampered state record"
+fi
+cp "$root/record.orig" "$record" && rm -f "$record.bak"
+"$life" validate "$root/ws.yaml" >/dev/null 2>&1 &&
+	ok "validate passes again once the record is restored" || bad "restored record still rejected"
+
 echo "== unreachable daemon =="
 if DOCKER_HOST="unix:///private/tmp/hestia-no-daemon-$$.sock" "$life" stop "$root/ws.yaml" >/dev/null 2>&1; then
 	bad "stop must fail when the docker daemon is unreachable"

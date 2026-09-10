@@ -73,6 +73,35 @@ printf '%s' "$project" | grep -Eq '^hestia-[a-z0-9][a-z0-9-]{0,23}-[0-9a-f]{12}$
 docker info >/dev/null 2>&1 ||
 	fail "docker daemon unreachable (DOCKER_HOST='${DOCKER_HOST:-default}') — cannot query workspace state"
 
+# Revalidate durable identity before an operation can reuse state or touch a
+# working container: the record is checked at generation, but a saved Compose
+# file must not outlive a state directory swapped out from under it. The
+# check is read-only - a missing record demands regeneration rather than
+# being silently recreated here.
+verify_state_identity() {
+	local canonical state_bind src
+	canonical="$(sed -n "s/^    working_dir: '\(.*\)'$/\1/p" "$file" | head -1)"
+	[ -n "$canonical" ] || fail "cannot read working_dir from $file — regenerate it with workspace/workspace-compose.sh"
+	state_bind=""
+	while IFS= read -r src; do
+		case "$src" in
+		"$canonical") ;;
+		*/.git) ;;
+		"") ;;
+		*)
+			[ -z "$state_bind" ] || fail "cannot identify a unique state bind in $file — regenerate it"
+			state_bind="$src"
+			;;
+		esac
+	done < <(sed -n "s/^        source: '\(.*\)'$/\1/p" "$file")
+	[ -n "$state_bind" ] || fail "no state bind found in $file — regenerate it"
+	[ -f "$state_bind/identity.record" ] ||
+		fail "state record missing in $state_bind — regenerate the Compose file before reusing this workspace"
+	"$here/identity/workspace-id.sh" --state-dir "$state_bind" "$canonical" >/dev/null ||
+		fail "state in $state_bind is not recorded for $canonical — refusing to operate; reattach or regenerate explicitly"
+}
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 dc() {
 	# -p pins the project validated above: an ambient COMPOSE_PROJECT_NAME or
 	# a Compose-loaded .env would otherwise redirect the operation to a
@@ -112,6 +141,7 @@ up_detached() {
 
 case "$cmd" in
 validate)
+	verify_state_identity
 	dc config -q || fail "Compose file does not validate: $file"
 	image="$(sed -n 's/^    image: //p' "$file" | head -1 | tr -d "'\"")"
 	printf '%s' "$image" | grep -Eq '^[A-Za-z0-9./:@_-]+$' ||
@@ -123,6 +153,7 @@ validate)
 	echo "ok: $file (project $project)"
 	;;
 start)
+	verify_state_identity
 	up_detached
 	wait_running
 	echo "workspace running: $(existing_cid)"
@@ -143,10 +174,12 @@ stop)
 	echo "workspace stopped; container, volumes and state retained: $stopped_id"
 	;;
 remove-runtime)
+	verify_state_identity
 	dc rm -sf workspace >/dev/null
 	echo "runtime removed; volumes and state retained"
 	;;
 recreate)
+	verify_state_identity
 	before="$(existing_cid)"
 	if [ -n "$before" ]; then
 		echo "stopping first — finish active work before recreating"
@@ -164,6 +197,7 @@ recreate)
 	echo "recreated: $before -> $after"
 	;;
 clear-caches)
+	verify_state_identity
 	dc config --volumes 2>/dev/null | grep -qx "linux-caches" ||
 		fail "this workspace declares no linux-caches volume; refusing to clear anything"
 	volume="${project}_linux-caches"
