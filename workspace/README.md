@@ -1,6 +1,6 @@
 # Workspace mounts
 
-[ADR-001](../docs/architecture.md) · Tickets `JP73P2D` `KSCDG1J` `24GJSHY` `HE2GM6N` · [Mount tests](../tests/workspace-mounts.test.sh) · [Lifecycle tests](../tests/workspace-lifecycle.test.sh) · [Cache-clear tests](../tests/workspace-cache-clear.test.sh)
+[ADR-001](../docs/architecture.md) · Tickets `JP73P2D` `KSCDG1J` `24GJSHY` `HE2GM6N` `XJVWF4K` · [Mount tests](../tests/workspace-mounts.test.sh) · [Lifecycle tests](../tests/workspace-lifecycle.test.sh) · [Cache-clear tests](../tests/workspace-cache-clear.test.sh)
 
 `workspace/workspace-compose.sh` generates a scoped Compose definition for one
 checkout. It is a helper, not a Hestia command: the output is an ordinary
@@ -83,6 +83,33 @@ unreadable metadata fail with a clear error before anything is written; a
 failed generation leaves no partial Compose file and never mutates the
 checkout.
 
+## Agent layer (omp)
+
+The optional `agent` image target (`docker build --target agent .`) adds omp
+(oh-my-pi) on top of `fixture-tools`, installed through mise and verified
+against the pinned release digest. The provider policy
+(`agent/omp/config.yml`: every built-in provider disabled except bedrock,
+which uses the standard AWS credential chain) is root-owned in the image and
+bound **read-only** into the workspace. Generate with `--image
+hestia-agent:<tag>`.
+
+omp's durable state — sessions (`--resume`), the `agent.db` database, memory,
+logs and extracted natives — lives under `~/.omp`, which the generated
+Compose file binds from the workspace state directory
+(`<state-root>/<workspace-id>/omp`), outside source and build context. It
+survives stop/remove-runtime/recreate like all durable state; `clear-caches`
+never touches it.
+
+Authentication is the remaining manual step by design: with no AWS
+credentials, `omp -p …` fails with a clear, actionable error while the shell
+and source stay fully usable. Provide credentials at runtime through the AWS
+credential chain (for example a scoped profile exported into the attach
+session — never baked into images, Compose files or logs). Two per-container
+behaviors to know: `mise trust` of the mounted repository is required once
+per container (paranoid default; trust state is not persisted across
+recreation), and `~/.omp/natives` is extracted on first run into the state
+directory.
+
 ## Limits
 
 One writer per checkout at a time: host and container share the working tree
@@ -96,7 +123,8 @@ tickets.
 2026-09-09, macOS 25.6.0 arm64 (Docker server 29.5.2, fixture-tools image):
 `tests/workspace-mounts.test.sh` passed 29/29,
 `tests/workspace-lifecycle.test.sh` 14/14 and
-`tests/workspace-cache-clear.test.sh` 10/10 — including host/container
+`tests/workspace-cache-clear.test.sh` 10/10, `tests/workspace-agent.test.sh` 16/16
+on the agent image — including host/container
 status agreement, edits visible in both directions, staging inside containers
 for both worktree link layouts without pointer changes, no sibling source or
 Docker socket visible, out-of-bind paths invisible, clear no-mutation

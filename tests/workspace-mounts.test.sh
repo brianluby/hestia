@@ -94,8 +94,8 @@ echo "== generator =="
 "$gen" --out "$root/main.yaml" "$repo" 2>/dev/null
 [ -f "$root/main.yaml" ] && ok "compose file written for main checkout" || bad "no compose file"
 grep -q "^name: hestia-" "$root/main.yaml" && ok "project name is the workspace id" || bad "no project name"
-[ "$(grep -c 'type: bind' "$root/main.yaml")" -eq 2 ] &&
-	ok "main checkout: source + state binds (its .git lives inside it)" || bad "unexpected bind count"
+[ "$(grep -c 'type: bind' "$root/main.yaml")" -eq 4 ] &&
+	ok "main checkout: source + state + omp state + omp policy binds" || bad "unexpected bind count"
 docker compose -f "$root/main.yaml" config >/dev/null 2>&1 &&
 	ok "generated compose file is valid" || bad "compose file invalid"
 
@@ -125,8 +125,8 @@ echo "== worktrees (docker run with the generator's exact binds) =="
 for wt in wt-abs wt-rel; do
 	wdir="$fx/worktrees/$wt"
 	"$gen" --out "$root/$wt.yaml" "$wdir" 2>/dev/null
-	[ "$(grep -c 'type: bind' "$root/$wt.yaml")" -eq 3 ] &&
-		ok "$wt: checkout + metadata + state binds" || bad "$wt: bind count"
+	[ "$(grep -c 'type: bind' "$root/$wt.yaml")" -eq 5 ] &&
+		ok "$wt: checkout + metadata + state + omp binds" || bad "$wt: bind count"
 	binds=(-e GIT_CONFIG_COUNT=2
 		-e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0="$wdir"
 		-e GIT_CONFIG_KEY_1=safe.directory -e GIT_CONFIG_VALUE_1="$repo/.git")
