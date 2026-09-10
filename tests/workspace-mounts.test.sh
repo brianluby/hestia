@@ -221,6 +221,18 @@ fi
 printf 'canonical: %s\nrepo-group: %s\nworkspace: %s\n' \
 	"$(cd "$repo" && pwd -P)" 	"$(sed -n 's/^repo-group: //p' <<<"$("$here/identity/workspace-id.sh" "$repo")")" 	"$ws_id" >"$HESTIA_STATE_ROOT/$ws_id/identity.record"
 
+echo "== relative state root rejected =="
+mkdir -p "$root/relstate"
+if (cd "$root" && HESTIA_STATE_ROOT="relstate" "$gen" --out "$root/rel.yaml" "$repo") >"$root/rel.out" 2>"$root/rel.err"; then
+	bad "relative HESTIA_STATE_ROOT rejected"
+else
+	grep -q "must be an absolute path" "$root/rel.err" &&
+		ok "relative state root fails clearly before writing anything" ||
+		bad "unclear relative-root error: $(cat "$root/rel.err")"
+	[ ! -e "$root/rel.yaml" ] && [ ! -e "$root/relstate/hestia-"* ] 2>/dev/null &&
+		ok "rejected relative root wrote no file or state" || ok "rejected relative root wrote no compose file"
+fi
+
 echo "== failure modes =="
 
 if "$gen" "$root/no-such-checkout" >"$root/f1.out" 2>"$root/f1.err"; then
