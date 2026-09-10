@@ -1,6 +1,7 @@
 # Host and editor noise
 .DS_Store
-.zcode/  # agent session/worktree state for this checkout
+# agent session/worktree state for this checkout
+.zcode/
 Thumbs.db
 Desktop.ini
 *.swp
