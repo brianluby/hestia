@@ -292,3 +292,42 @@ cache-clear 12 — 108 checks total).
   login, an agent-assisted fixture change, and session resume across
   recreation with a real session — deliberately left for the user-driven
   interactive step; no credentials exist in any image, Compose output or log.
+
+## omp settings persistence — FA5H9TR, 2026-09-10
+
+Host: macOS 25.6.0 arm64, Docker server 29.5.2. Agent image rebuilt as
+`hestia-agent:2026-09-10`, `sha256:9c7150a7fefd…`, 256,554,658 bytes; omp
+v18.1.16 re-verified against the pinned release digest at build. All suites
+green: agent 24, snapshot 7, identity 19, mounts 31, lifecycle 23,
+cache-clear 12 — 116 checks total.
+
+- **Root cause (omp v18.1.16 source):** `Settings#writeYamlAtomically`
+  creates `config.yml.<pid>.<uuid>.tmp` in `~/.omp/agent/` then renames onto
+  `config.yml`. Renaming onto the old read-only bind mount failed with EBUSY
+  and the rejection was unhandled — every settings write crashed.
+- **Mechanism (omp v18.1.16 source):** config layers merge global → project
+  → overlay → runtime overrides (`#rebuildMerged`); overlays come from
+  `PI_CONFIG_FILES`; a missing or malformed overlay is a hard startup error
+  (fail-closed); `omp config get <key>` reports the effective merged value
+  without needing credentials.
+- **New enforcement:** policy baked root-owned at `/opt/hestia/omp/config.yml`
+  (root-owned directory, so neither edit nor rename-over is possible — no
+  bind required); Compose sets `PI_CONFIG_FILES: /opt/hestia/omp/config.yml`;
+  nothing is bound inside `~/.omp`, which is fully dev-writable.
+- **Observed in containers:** with the overlay, `omp config get
+  disabledProviders` lists everything except bedrock; after writing
+  `disabledProviders: []` into the user's `~/.omp/agent/config.yml` the
+  effective value is unchanged (overlay shadows user config); without the
+  overlay env the same probe returns `[]` (control — proves the probe
+  detects a real leak, and documents the boundary: whoever controls the omp
+  process environment can bypass the policy, as they could against the
+  read-only bind too). `omp models ls` is auth-driven (empty without
+  credentials either way) and therefore NOT usable as a policy probe.
+- **Settings persistence:** omp's atomic tmp+rename write onto
+  `~/.omp/agent/config.yml` succeeds (asserted); content is host-visible in
+  `<state-root>/<workspace-id>/omp/agent/config.yml` and survives `recreate`
+  (asserted).
+- **Policy guarantees kept and asserted:** byte-identical to the repo
+  template, not writable, directory not writable (no rename-over), overlay
+  wired in the generated Compose file, re-enable attempt shadowed.
+- No credentials exist in any image, Compose output or log.

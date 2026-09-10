@@ -1,20 +1,24 @@
 #!/usr/bin/env bash
 # XJVWF4K — acceptance tests for the omp agent layer and its state scoping.
+# FA5H9TR — settings persistence and the overlay-based provider policy.
 #
 # Verifies against the hestia-agent image: the generated Compose file carries
-# the omp state bind and the read-only provider-policy bind; omp runs in the
-# workspace; the policy config is byte-identical to the repo template and not
-# writable at runtime; missing AWS credentials fail with a clear, actionable
-# error while shell and source stay usable; omp's durable state (marker,
-# agent.db) lives in the workspace state directory on the host and survives
-# recreation. Needs a reachable Docker daemon and the agent image; SKIPs
-# otherwise. The fixture lives under the user's home (Docker-shared path).
+# the omp state bind and the PI_CONFIG_FILES policy overlay (no file bind
+# inside ~/.omp); omp runs in the workspace; the policy config is
+# byte-identical to the repo template and neither writable nor replaceable at
+# runtime; a user config attempting to re-enable providers does not take
+# effect (the root-owned overlay wins every merge); omp's atomic settings
+# write onto ~/.omp/agent/config.yml succeeds and its content survives
+# recreation; missing AWS credentials fail with a clear, actionable error
+# while shell and source stay usable. Needs a reachable Docker daemon and the
+# agent image; SKIPs otherwise. The fixture lives under the user's home
+# (Docker-shared path).
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 gen="$here/workspace/workspace-compose.sh"
 life="$here/workspace/workspace-lifecycle.sh"
-image="hestia-agent:2026-09-09"
+image="hestia-agent:2026-09-10"
 
 if ! command -v docker >/dev/null 2>&1; then
 	echo "SKIP: docker not installed"
@@ -88,8 +92,10 @@ grep -q "target: /home/dev/.omp$" "$root/ws.yaml" &&
 	ok "omp state bind targets ~/.omp" || bad "no ~/.omp bind"
 grep -q "source: '$HESTIA_STATE_ROOT/$ws_id/omp'" "$root/ws.yaml" &&
 	ok "omp state bind sources from the workspace state dir" || bad "omp bind source wrong"
-grep -A1 "target: /home/dev/.omp/agent/config.yml" "$root/ws.yaml" | grep -q "read_only: true" &&
-	ok "provider policy bound read-only" || bad "policy bind not read-only"
+grep -q "PI_CONFIG_FILES: /opt/hestia/omp/config.yml" "$root/ws.yaml" &&
+	ok "policy overlay wired via PI_CONFIG_FILES" || bad "no PI_CONFIG_FILES policy overlay"
+grep -q "omp/agent/config.yml" "$root/ws.yaml" &&
+	bad "no file bind inside the omp state tree" || ok "nothing bound inside ~/.omp"
 
 echo "== runtime =="
 "$life" start "$root/ws.yaml" >/dev/null 2>&1 || bad "start failed"
@@ -101,13 +107,20 @@ docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace \
 ver="$(docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace omp --version 2>/dev/null)" || ver=""
 [ "$ver" = "omp/18.1.16" ] &&
 	ok "omp runs in the workspace ($ver)" || bad "omp version: $ver"
-cfg_ctr="$(docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace sha256sum /home/dev/.omp/agent/config.yml 2>/dev/null | cut -d' ' -f1)"
+env_ctr="$(docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace bash -c 'printf %s "$PI_CONFIG_FILES"')"
+[ "$env_ctr" = "/opt/hestia/omp/config.yml" ] &&
+	ok "PI_CONFIG_FILES reaches exec shells" || bad "PI_CONFIG_FILES wrong in exec env: $env_ctr"
+cfg_ctr="$(docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace sha256sum /opt/hestia/omp/config.yml 2>/dev/null | cut -d' ' -f1)"
 cfg_repo="$(sha256sum "$here/agent/omp/config.yml" | cut -d' ' -f1)"
 [ "$cfg_ctr" = "$cfg_repo" ] &&
 	ok "policy config byte-identical to the repo template" || bad "config drift: $cfg_ctr vs $cfg_repo"
 docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace \
-	test -w /home/dev/.omp/agent/config.yml 2>/dev/null &&
+	test -w /opt/hestia/omp/config.yml 2>/dev/null &&
 	bad "policy config writable at runtime" || ok "policy config not writable at runtime"
+docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace \
+	test -w /opt/hestia/omp 2>/dev/null &&
+	bad "policy directory writable (file could be replaced by rename)" ||
+	ok "policy directory not writable (no rename-over either)"
 docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace \
 	touch /home/dev/.omp/marker.txt 2>/dev/null &&
 	ok "omp state dir writable by the runtime user" || bad "state dir not writable"
@@ -122,11 +135,49 @@ grep -q "omp-rc=1" "$root/auth.log" &&
 grep -q "git-ok" "$root/auth.log" &&
 	ok "shell and source remain usable after the auth failure" || bad "git broken after auth failure"
 
+echo "== settings persistence (FA5H9TR) =="
+# omp persists settings with an atomic write: create
+# config.yml.<pid>.<uuid>.tmp in ~/.omp/agent/ (verified against omp
+# v18.1.16 #writeYamlAtomically), then rename onto config.yml. Under the
+# previous read-only bind that rename failed with EBUSY; exercise the same
+# write shape against the now-plain file.
+write_out="$(docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace \
+	bash -c 'f=/home/dev/.omp/agent/config.yml; t="$f.$$.$RANDOM.tmp"; printf "theme:\n  dark: serius\n" >"$t" && mv "$t" "$f" && cat "$f"' 2>/dev/null)" || write_out=""
+case "$write_out" in
+*"serius"*) ok "atomic tmp+rename onto config.yml succeeds (no EBUSY)" ||
+	bad "atomic settings write broken" ;;
+*) bad "atomic settings write failed: $write_out" ;;
+esac
+# A user config that tries to re-enable every provider must not take effect:
+# the root-owned overlay merges after user config and wins. `omp config get`
+# reports the effective merged value and needs no credentials (the model
+# list is auth-driven and would be empty either way).
+docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace \
+	bash -c 'printf "disabledProviders: []\n" >/home/dev/.omp/agent/config.yml' 2>/dev/null ||
+	bad "writing the user config failed"
+eff="$(docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace \
+	omp config get disabledProviders 2>/dev/null)" || eff=""
+case "$eff" in
+*"\"anthropic\""*) ok "re-enable attempt is shadowed (providers stay disabled)" ||
+	bad "effective policy lost" ;;
+*) bad "policy leaked providers: $eff" ;;
+esac
+# Control, and a documented boundary: the same user config without the
+# overlay env leaks — whoever controls the omp process environment can bypass
+# the policy, exactly as they could against the previous read-only bind.
+eff_ctl="$(docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace \
+	env -u PI_CONFIG_FILES omp config get disabledProviders 2>/dev/null)" || eff_ctl=""
+[ "$eff_ctl" = "[]" ] &&
+	ok "control: the probe detects a real leak when the overlay is absent" ||
+	bad "control surprised: $eff_ctl"
+
 echo "== durable agent state survives recreation =="
 [ -f "$HESTIA_STATE_ROOT/$ws_id/omp/agent/agent.db" ] &&
 	ok "omp agent.db lives in the host state dir" || bad "agent.db not in host state dir"
 [ -f "$HESTIA_STATE_ROOT/$ws_id/omp/marker.txt" ] &&
 	ok "state marker visible on the host" || bad "marker not host-visible"
+grep -q "disabledProviders" "$HESTIA_STATE_ROOT/$ws_id/omp/agent/config.yml" &&
+	ok "persisted settings are host-visible in the state dir" || bad "settings file not on the host"
 "$life" recreate "$root/ws.yaml" >"$root/recreate.log" 2>&1 ||
 	bad "recreate failed: $(tail -1 "$root/recreate.log")"
 marker="$(docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace cat /home/dev/.omp/marker.txt 2>/dev/null)" ||
@@ -136,6 +187,13 @@ marker="$(docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace cat /h
 docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace \
 	test -f /home/dev/.omp/agent/agent.db 2>/dev/null &&
 	ok "agent.db survives recreation" || bad "agent.db lost on recreation"
+persisted="$(docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace \
+	cat /home/dev/.omp/agent/config.yml 2>/dev/null)" || persisted="missing"
+case "$persisted" in
+*disabledProviders*) ok "persisted settings survive recreation" ||
+	bad "settings lost on recreation" ;;
+*) bad "settings file lost on recreation: $persisted" ;;
+esac
 post_recreate_ver="$(docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace bash -c "mise trust '$repo' >/dev/null 2>&1; omp --version" 2>/dev/null)" ||
 	post_recreate_ver=""
 [ "$post_recreate_ver" = "omp/18.1.16" ] &&

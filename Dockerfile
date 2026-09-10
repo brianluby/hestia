@@ -135,26 +135,33 @@ RUN mise install --yes \
 # verified against the pinned release-API digest of omp-linux-arm64; the
 # binary must report the pinned version. The provider restriction
 # (agent/omp/config.yml: everything except bedrock disabled) ships root-owned
-# and read-only — workspace policy, not runtime-user preference. No
-# credentials enter the image: bedrock authenticates through the standard AWS
-# credential chain supplied at runtime. omp's durable state (~/.omp: sessions,
-# resumable via --resume, project-scoped memory) is bind-mounted from the
-# workspace's state directory by the generated Compose file, never baked.
+# at /opt/hestia/omp — workspace policy, not runtime-user preference (FA5H9TR).
+# The generated Compose file loads it via PI_CONFIG_FILES: omp merges config
+# overlays after the user's own config and fails to start when a configured
+# overlay is missing, so the policy wins every merge and is fail-closed. The
+# file lives outside ~/.omp precisely so the writable state mount never hides
+# it and omp's settings writes (atomic tmp+rename onto ~/.omp/agent/config.yml)
+# never touch it — binding it read-only into the state tree made every such
+# rename fail with EBUSY. No credentials enter the image: bedrock
+# authenticates through the standard AWS credential chain supplied at runtime.
+# omp's durable state (~/.omp: sessions, resumable via --resume, settings,
+# project-scoped memory) is bind-mounted from the workspace's state directory
+# by the generated Compose file, never baked.
 FROM fixture-tools AS agent
 
 ARG OMP_VERSION=v18.1.16
 ARG OMP_SHA256=d8612389c7af3cf3b69609c9149bff3cf07dcb65774b231d9dc4966b176b9720
 
-COPY agent/omp/config.yml /home/dev/.omp/agent/config.yml
-
 USER root
 # ~/.omp (and agent/, where omp keeps its agent.db database) must be
-# dev-writable: omp extracts its pi_natives addon into ~/.omp/natives and
-# opens ~/.omp/agent/agent.db at startup. Only config.yml itself stays
-# root-owned in the image — an advisory layer; the read-only Compose bind
-# is the runtime enforcement of the provider policy.
+# dev-writable: omp extracts its pi_natives addon into ~/.omp/natives, opens
+# ~/.omp/agent/agent.db at startup, and persists settings there. The policy
+# config is copied as root into a root-owned directory, so the runtime user
+# can neither edit nor replace it and no read-only bind is required.
 RUN printf '"github:can1357/oh-my-pi" = "%s"\n' "${OMP_VERSION#v}" >>/home/dev/.config/mise/config.toml \
+ && mkdir -p /opt/hestia/omp /home/dev/.omp/agent \
  && chown dev:dev /home/dev/.omp /home/dev/.omp/agent
+COPY agent/omp/config.yml /opt/hestia/omp/config.yml
 USER dev
 RUN mise install --yes \
  && omp_bin="$(mise where github:can1357/oh-my-pi)/omp" \
