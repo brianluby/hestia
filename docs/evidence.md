@@ -272,6 +272,8 @@ cache-clear 12 — 108 checks total).
   disabled) ships root-owned in the image and is bound read-only over the
   state mount in generated Compose files — byte-identical to the repo
   template at runtime and not writable by the dev user (asserted).
+  (Superseded by FA5H9TR below: the read-only bind broke omp's atomic
+  settings writes; the policy now rides at `/opt/hestia/omp/config.yml`.)
 - **Empirical omp layout fixes applied during integration:** `~/.omp` and
   `~/.omp/agent` must be dev-writable (omp extracts `pi_natives` into
   `~/.omp/natives` and opens `~/.omp/agent/agent.db` at startup — both
