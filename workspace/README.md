@@ -89,13 +89,17 @@ The optional `agent` image target (`docker build --target agent .`) adds omp
 (oh-my-pi) on top of `fixture-tools`, installed through mise and verified
 against the pinned release digest. The provider policy
 (`agent/omp/config.yml`: every built-in provider disabled except bedrock,
-which uses the standard AWS credential chain) is root-owned in the image and
-bound **read-only** into the workspace. Generate with `--image
-hestia-agent:<tag>`.
+which uses the standard AWS credential chain) is baked root-owned at
+`/opt/hestia/omp/config.yml` — outside the writable state tree — and loaded
+as a config overlay via `PI_CONFIG_FILES`: omp merges overlays after the
+user's own config, so the policy wins every merge, and it refuses to start
+when a configured overlay is missing, so the policy is fail-closed (FA5H9TR).
+Generate with `--image hestia-agent:<tag>`.
 
-omp's durable state — sessions (`--resume`), the `agent.db` database, memory,
-logs and extracted natives — lives under `~/.omp`, which the generated
-Compose file binds from the workspace state directory
+omp's durable state — sessions (`--resume`), the `agent.db` database, its own
+`~/.omp/agent/config.yml` settings (model selection, theme), memory, logs and
+extracted natives — lives under `~/.omp`, which the generated Compose file
+binds from the workspace state directory
 (`<state-root>/<workspace-id>/omp`), outside source and build context. It
 survives stop/remove-runtime/recreate like all durable state; `clear-caches`
 never touches it.
