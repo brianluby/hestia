@@ -1,0 +1,2111 @@
+(0) > ocr scan --audience agent --background "Review focus areas for PRs #1-#8 (main d41279d..0578b1b) in brianluby/hestia — judgment calls a reviewer should specifically weigh: The mise integrity story: the pinned sha256 comes from the GitHub release API, not a signed checksum or SLSA attestation. Documented as an open choice, but it's a decision you should own before putting an authenticated agent in the image. safe.directory injected via GIT_CONFIG_* env scoped to mounted paths — the cross-uid trust mechanism. workspace-compose.sh writing to ~/.local/share/hestia/ at generation time (the identity record), and its single-quote YAML escaping for paths. The lifecycle helper's rm -sf force-stop and the hestia-* project-name guard being mistake-prevention, not a security boundary. A known UX gap that omp integration will hit immediately: mise paranoid trust state is per-container, so trust doesn't persist across compose exec sessions — tests worked around it with one-shot command chains."
+[ocr]   ✘ code_comment failed: Error: failed to parse 'comments' JSON string: invalid character '.' looking for beginning of value
+[ocr]   ✘ file_read failed: file "mise.toml" not found: read file "mise.toml": open /Users/bluby/repos/hestia/mise.toml: no such file or directory
+[ocr] Summary: 11 file(s) reviewed, 57 comment(s), ~1175452 token(s) used (input: ~934925, output: ~240527), cache(read: ~663296, write: ~0), 24m27s elapsed
+[ocr] Session: c10b9c63-65a9-42ed-b5b4-02744ee6c331
+
+─── tests/workspace-lifecycle.test.sh:24-27 ───
+[test · medium] The tests lack SKIP-friendly preflight probes for required external tools/plugins
+(docker compose plugin and mise/toolchain), so hosts missing prerequisites produce FAILs or raw
+aborts instead of skipped CI signals. Add explicit probes and skip when they fail.
+
+  if ! docker info >/dev/null 2>&1; then
+        echo "SKIP: docker daemon not reachable"
++       exit 0
++ fi
++ if ! docker compose version >/dev/null 2>&1; then
++       echo "SKIP: docker compose v2 plugin not available"
+        exit 0
+  fi
+
+
+─── tests/workspace-lifecycle.test.sh:109-109 ───
+[bug · high] Command substitutions feeding assertions are not guarded against nonzero exit statuses;
+under set -e they abort before ok/bad reporting, including cases where a missing or unexpected
+result is the intended test outcome. Guard assignments with explicit status handling or || true and
+report failures with logs.
+
+- marker="$(docker compose -f "$root/ws.yaml" exec -T workspace cat "$state_dir/marker.txt" 2>/dev/null)"
++ marker="$(docker compose -f "$root/ws.yaml" exec -T workspace cat "$state_dir/marker.txt" 2>/dev/null || true)"
+
+
+─── tests/workspace-lifecycle.test.sh:121-121 ───
+[test · medium] Multi-step command chains (trust/marker/build/test/start) are collapsed into one
+execution/status, conflating failures and obscuring whether state, build, or tests failed. Split
+into separate guarded steps with individual logs and force non-cached test execution where
+persistence must be proven.
+
+-       bash -c "mise trust '$repo' >/dev/null && go build ./... && go test ./..." >"$root/rebuild.log" 2>&1 ||
++       bash -c "mise trust '$repo' >/dev/null && go build ./... && go test -count=1 ./..." >"$root/rebuild.log" 2>&1 ||
+
+
+─── tests/workspace-lifecycle.test.sh:95-95 ───
+[bug · medium] Fallible lifecycle or snapshot commands are run without explicit status checks or
+ok/bad reporting, so failures abort the suite with no summary and can misattribute later failures.
+Wrap each call, check its status, and surface its log on failure.
+
+- "$life" start "$root/ws.yaml" >"$root/start2.log" 2>&1
++ "$life" start "$root/ws.yaml" >"$root/start2.log" 2>&1 &&
++       ok "start after stop succeeds" || bad "start after stop failed: $(cat "$root/start2.log")"
+
+
+─── tests/workspace-lifecycle.test.sh:68-68 ───
+[bug · medium] Identity values extracted from generated compose files (name/project/ws_id) are not
+validated; empty or multi-line values collapse paths and project names, causing false passes and
+potentially wrong-volume or state operations. Require exactly one well-formed id and derive
+paths/volumes through a validated helper.
+
+  ws_id="$(sed -n 's/^name: //p' "$root/ws.yaml")"
++ [ -n "$ws_id" ] || {
++       echo "FAIL - no Compose project name in $root/ws.yaml"
++       exit 1
++ }
+
+
+─── tests/workspace-lifecycle.test.sh:87-88 ───
+[bug · medium] Docker Compose exec/run calls used for assertions should pass -T and construct
+commands safely (positional arguments or robust quoting) to avoid TTY/CRLF spurious failures,
+injection, and misleading empty-output diagnostics.
+
++ printf 'durable-marker\n' >"$state_dir/src-marker.txt"
+  "$life" attach "$root/ws.yaml" \
+-       sh -c "echo durable-marker >'$state_dir/marker.txt'" &&
++       sh -c 'cp "$1/src-marker.txt" "$1/marker.txt"' sh "$state_dir" &&
+
+
+─── tests/workspace-lifecycle.test.sh:100-100 ───
+[test · medium] The header comment advertises a `remove-runtime` leg in the journey, but nothing
+asserts it: `remove-runtime` is only ever called from `cleanup_compose`, with stdout/stderr
+discarded and `|| true`, so a regression there (e.g. removing volumes/state, or failing outright) is
+invisible to this suite. Add an explicit section — `remove-runtime` succeeds, the state dir and
+cache volume are still present, and `attach` then refuses with 'not running' — before the recreate
+section.
+
++ echo "== remove-runtime =="
++ "$life" remove-runtime "$root/ws.yaml" >/dev/null 2>&1 &&
++       ok "remove-runtime completes" || bad "remove-runtime failed"
++ [ -f "$state_dir/marker.txt" ] &&
++       ok "remove-runtime keeps the durable state" || bad "state removed with runtime"
++
++ "$life" start "$root/ws.yaml" >"$root/start3.log" 2>&1 || bad "restart after remove-runtime failed"
++
+  echo "== recreate =="
+
+
+─── tests/workspace-lifecycle.test.sh:70-75 ───
+[bug · medium] Every teardown step is silenced and `|| true`-ed, then `cleanup` unconditionally `rm
+-rf`s `$fx` and `$root`. If `remove-runtime`/`down` fails (unreachable daemon, container in an
+unknown state), the test reports nothing while destroying the directories the still-running
+container bind-mounts — leaking Hestia containers that point at deleted paths and polluting every
+later run (and Docker Desktop on macOS keeps them until manually pruned). At minimum surface a
+warning so a leak is visible in the log; also note this helper runs twice (explicitly above the
+summary and again from the EXIT trap), so the docker calls are duplicated.
+
+  cleanup_compose() {
+-       "$life" remove-runtime "$root/ws.yaml" >/dev/null 2>&1 || true
+-       docker compose -f "$root/ws.yaml" down --remove-orphans >/dev/null 2>&1 || true
+-       docker volume rm "${ws_id}_linux-caches" >/dev/null 2>&1 || true
++       warn() { echo "note: teardown failed: $1" >&2; }
++       "$life" remove-runtime "$root/ws.yaml" >/dev/null 2>&1 || warn "remove-runtime"
++       docker compose -f "$root/ws.yaml" down --remove-orphans >/dev/null 2>&1 || warn "compose down"
++       docker volume rm "${ws_id}_linux-caches" >/dev/null 2>&1 || warn "volume rm"
+        return 0
+  }
+
+
+─── tests/workspace-lifecycle.test.sh:63-63 ───
+[maintainability · low] Generator/helper invocations discard stderr, which can hide the real cause
+of failures under set -e and make later file or identity checks unreachable or misleading. Capture
+stderr to a log or surface it on failure and check exit status explicitly.
+
+- "$gen" --out "$root/ws.yaml" "$repo" 2>/dev/null
++ "$gen" --image "$image" --out "$root/ws.yaml" "$repo" 2>"$root/generate.log" || {
++       echo "FAIL - workspace generation failed"
++       cat "$root/generate.log" >&2
++       exit 1
++ }
+
+
+─── tests/workspace-lifecycle.test.sh:18-18 ───
+[maintainability · low] This tag is a hand-maintained copy of the pin in
+`workspace/workspace-compose.sh` (`image="hestia-fixture-tools:2026-09-09"`). The two will drift:
+after a bump the pre-flight `docker image inspect` still passes for the old tag (or SKIPs for the
+new one), and the real symptom becomes an opaque `bad "validate failed"` because `validate` checks
+that the image exists locally. Passing `--image "$image"` to the generator makes the test
+self-consistent and independent of the default pin.
+
+- image="hestia-fixture-tools:2026-09-09"
++ # pinned explicitly so the pre-flight image check and the generated
++ # workspace can never disagree (workspace-compose.sh has its own default)
++ image="${HESTIA_FIXTURE_IMAGE:-hestia-fixture-tools:2026-09-09}"
+
+
+─── tests/workspace-id.test.sh:29-29 ───
+[test · high] workspace-id test helpers do not distinguish a successful non-empty field from a
+failed, empty, or malformed run; comparisons and negative assertions can pass vacuously or abort
+without diagnosis. Use a strict helper that checks exit status and exactly one non-empty field
+before comparisons.
+
+
+
+─── tests/workspace-id.test.sh:79-79 ───
+[test · medium] There is no preflight that `$wid` exists and is executable, and these "clear
+failures" checks treat *any* non-zero status as the expected rejection. If
+`identity/workspace-id.sh` is missing, non-executable or broken at the top (bash syntax error, `git`
+not on PATH), the shell returns 127/1/2 and both of these tests — the only ones that don't compare
+ids — print `ok`, giving a green-looking suite for a totally non-functional tool. Add a hard
+preflight (`[ -x "$wid" ] || { echo "missing $wid"; exit 1; }`) and assert the *expected* exit code
+(`1` = domain failure) rather than "not 0"; the tool also has a distinct usage exit (`2`) worth
+pinning down.
+
+
+
+─── tests/workspace-id.test.sh:100-100 ───
+[maintainability · medium] The failure contract here is asserted purely by human-readable prose
+(`refusing to reuse`, and `collision` in the block below). Those sentences are UX copy — the message
+on the `--state-dir` path is a long single sentence with an em dash that a future PR will very
+plausibly reword — and the suite will then fail for the wrong reason, or, worse, `grep -q collision`
+could match incidental text. Prefer asserting the stable machine-level contract: exit code `1` plus
+a stable error token/prefix (e.g. `workspace-id: error:` with a bracketed code such as
+`[state-path-mismatch]` / `[identity-collision]`), so wording churn doesn't break acceptance and the
+two distinct failure modes can't be confused with each other.
+
+
+
+─── tests/workspace-id.test.sh:104-104 ───
+[test · medium] This re-implements the record format with a hand-written regex instead of using the
+tool's own reported canonical path, and it conflates two different problems: if the record file were
+deleted (rather than rewritten) `grep` fails too and the diagnostic says "old record rewritten".
+Read the field through the same parser used elsewhere and compare to `canonical_expected="$(cd
+"$root/x/collide" ... )"` captured *before* the move, and distinguish "record missing" from "record
+changed".
+
+
+
+─── tests/workspace-id.test.sh:70-70 ───
+[test · medium] `git switch -c other >/dev/null 2>&1` (and the `switch main` below, the `worktree
+add -b wt` above, and `git init -b main` in `make_repo`) run under `set -e` with their diagnostics
+discarded. Any environment difference — git < 2.23 (`switch`), git < 2.28 (`init -b`), git < 2.31
+which the tool itself needs for `--path-format=absolute`, a pre-existing `wt`/`other` branch, a
+filesystem without symlink support for `ln -s` — kills the whole suite mid-way with a bare non-zero
+exit: no `FAIL` line, no `passed:/failed:` summary, and TAP-ish consumers see nothing. Wrap
+prerequisite steps so failures are explicit, e.g. `git -C ... switch -c other 2>"$root/switch.err"
+|| { bad "prereq: git switch failed: $(cat "$root/switch.err")"; exit 1; }`, and add a one-time
+version/symlink preflight.
+
+
+
+─── tests/workspace-id.test.sh:16-16 ───
+[maintainability · medium] The `EXIT` trap deletes the whole sandbox, so when any check fails the
+evidence the messages reference (`$root/err.txt`, `$root/err2.txt`, `$st/identity.record`, the moved
+checkout, the worktree registration) is already gone and the failure cannot be reproduced or
+inspected. Keep the tree on failure, e.g.:
+```bash
+trap '[ "$fail" -eq 0 ] && rm -rf "$root" || echo "artifacts left in $root"' EXIT
+```
+and consider writing diagnostics outside `$root` (or copying them out) so the `cat` in the `bad`
+messages still works.
+
+
+
+─── tests/workspace-id.test.sh:37-37 ───
+[test · medium] `make_repo` only neutralises `user.name`/`user.email`/`commit.gpgsign`; the commit
+still inherits the developer's global git config, so `core.hooksPath` (husky/user hooks),
+`commit.template`, `includeIf` blocks or `core.excludesFile` can make `git commit -qm init` fail or
+alter the repo, i.e. the suite is not hermetic w.r.t. the host. Relatedly, the "non-git directory
+rejected" check uses `$root` itself: if `TMPDIR` resolves inside a git work tree, `git -C "$root"
+rev-parse --show-toplevel` succeeds and the tool happily derives an id for the enclosing repository,
+producing a spurious failure. Consider exporting `GIT_CONFIG_GLOBAL=/dev/null
+GIT_CONFIG_SYSTEM=/dev/null HOME="$root/home"` for the suite and verifying in a preflight that
+`$root` is genuinely outside any repository.
+
+
+
+─── tests/workspace-id.test.sh:90-90 ───
+[test · medium] Given the file header advertises "sanitization", "bounds" and "id collision"
+coverage, several boundaries of that contract are untested here:
+- the `label_for` fallback: a basename that sanitises to empty (`$root/a/!!!`, or a non-ASCII name
+like `$root/a/项目`) should still yield `hestia-repo-<hash>` and stay within the 44-char bound — the
+tool's `${label:-repo}` path has no assertion.
+- a checkout argument that begins with `-` (the tool's `-*) usage` branch) and a path containing
+spaces/newlines — no argument-parsing/negative cases are exercised, and the usage exit code (2) is
+never asserted.
+- the "unreadable identity record" branch: write a record with an empty/missing `workspace:` field
+and assert a clear failure.
+- concurrency: two simultaneous first runs against the same `--state-dir` (the tool writes
+`identity.record.tmp.$$` then `mv`s, so the loser silently overwrites) — worth at least one
+`&`/`wait` smoke test.
+- the recorded reuse path only checks that `out1` = `out2`; it never asserts the output actually
+contains all three documented lines (`canonical:`, `repo-group:`, `workspace:`).
+
+
+
+─── tests/workspace-cache-clear.test.sh:69-69 ───
+[bug · medium] The EXIT trap is installed only at line 69, i.e. after `mkdir -p`, `mktemp`, the
+fixture creation and the generator run. Any failure before that point leaks the freshly created
+`$root` (plus the `$HESTIA_STATE_ROOT` tree inside it) and, if `make-fixture.sh` died mid-way, its
+fixture directory under `$tmp_base` (created via `TMPDIR="$tmp_base"`) is never removed because
+`$fx` has not been parsed yet. Note the sibling test tests/workspace-lifecycle.test.sh installs
+`trap cleanup EXIT` right after `mktemp` and only *upgrades* it to the compose-aware trap later —
+that convention was dropped here. Also only EXIT is trapped: on SIGINT/SIGTERM the EXIT trap may not
+run in bash, leaving a live Docker workspace, a volume and a temp tree behind. Recommend `trap
+cleanup EXIT` immediately after `root=$(mktemp -d ...)` (with `fx`/`root` already defaulted) and
+`trap 'cleanup_compose; cleanup' EXIT INT TERM` for the compose stage (re-rising the signal in the
+handler so the exit status stays conventional).
+
+
+
+─── tests/workspace-cache-clear.test.sh:56-57 ───
+[security · high] The fixture root extracted from make-fixture logs is not validated; empty or
+multi-line values can be fed to file operations and rm -rf. Require exactly one matching line, check
+the path exists, and ensure it is under the expected test sandbox before use.
+
+
+
+─── tests/workspace-cache-clear.test.sh:85-86 ───
+[test · medium] The documented goal (header lines 5-7 and docs/evidence.md "removes exactly
+`<workspace-id>_linux-caches` … no other volumes") is scoped removal, but nothing here pins the
+scope: no unrelated volume, no second workspace, and no container/image is created before the clear,
+so a regression where `clear-caches` runs `down -v`, prunes, or removes the wrong project would
+still produce 10/10 here. Add a sentinel before clearing — e.g. `docker volume create
+"hestia-decoy-$ws_id"` plus a second generated workspace's cache volume — and assert after the clear
+that they still exist and that no non-`linux-caches` volume of this project disappeared. It is also
+worth asserting the runtime was actually replaced (`docker compose ps -q workspace` differs from the
+pre-clear container id), which is currently only implied by `exec` succeeding.
+
+
+
+─── tests/workspace-cache-clear.test.sh:86-86 ───
+[test · low] Embedding the raw multi-line command output (`clear-caches` prints a "stopping
+workspace first…" line plus the confirmation) inside a single test-name line breaks the
+line-oriented `ok  - …` / `FAIL - …` format used for pass/fail accounting and for grepping evidence.
+Keep the assertion message a single line and dump the transcript to stderr on failure instead, e.g.
+`ok "clear-caches completes" || { bad "clear-caches failed"; printf '%s\n' "$out" >&2; }`.
+
+
+
+─── tests/workspace-cache-clear.test.sh:105-105 ───
+[test · medium] The guards only assert the exit status, not the contract that matters: a rejection
+must leave everything else untouched. If `clear-caches` were to fail *open* (do the destructive work
+and then exit non-zero), both guard assertions here would still pass while the live workspace's
+cache volume and container were already gone. Additionally, since the impostor is deliberately named
+`hestia-impostor` it passes the project-name guard, so this exercises only the "no declared cache
+volume" branch — the non-Hestia-name branch (the `hestia-*` check in workspace-lifecycle.sh) is
+untested. Re-check the real workspace after each rejected call (`docker volume inspect "$volume"`
+present, `compose ps -q workspace` unchanged, marker intact) and assert the rejected compose file
+never gained a project/container/volume; add a case with a non-`hestia-` project name.
+
+
+
+─── tests/workspace-mounts.test.sh:0-0 ───
+[test] The whole `== exposure limits ==` block (and the worktree block above) runs the assertions
+against hand-written `docker run -v` binds rather than against the compose files produced by the
+generator (`$root/main.yaml`, `$root/$wt.yaml`). Consequently these isolation assertions can never
+fail regardless of what the generator emits: the socket test spins up a container that by
+construction has no socket mounted, and the sibling-path test uses its own `-v "$repo:$repo"`. They
+document intent but provide no regression protection for the actual artifact under test. Drive them
+through the generated files (`docker compose -f "$root/$wt.yaml" run --rm -T ...`), or at minimum
+assert that the generated YAML contains no bind source outside `$wdir`, `$repo/.git` and
+`$HESTIA_STATE_ROOT` — e.g. extract `- source:` values from `$root/$wt.yaml` and reject any path
+that is not a declared root. Note also the ad-hoc binds omit the state mount, so the run is not the
+generated contract the count check (`type: bind` == 3) claims to describe.
+
+
+
+─── tests/workspace-mounts.test.sh:42-42 ───
+[test · medium] `ok`/`bad` are recorded but the suite never tears down what these `docker compose
+run` invocations create. `run --rm` removes the one-off container only; the project network and the
+`linux-caches` named volume persist, and because the project name derives from the workspace id (a
+fresh `mktemp` fixture path each run) every execution leaks a new network + volume. Sibling suites
+clean up explicitly; please mirror that so a developer running this repeatedly does not accumulate
+disk state.
+
+  trap cleanup EXIT
++ cleanup() {
++       for f in "$root"/*.yaml; do
++               [ -e "$f" ] && docker compose -f "$f" down -v --remove-orphans >/dev/null 2>&1 || true
++       done
++       [ -n "$fx" ] && rm -rf "$fx"
++       rm -rf "$root" "$tmp_base/sibling-of-fixture"
++       return 0
++ }
+
+
+─── tests/workspace-mounts.test.sh:122-122 ───
+[bug · medium] Restoring the fixture's git state here is best-effort with errors fully suppressed.
+If the container-owned index/objects make host `git reset`/`git checkout` fail (uid mismatch between
+the host user and the image's `dev` runtime user is common), the appended `// staged from container
+...` line silently stays in `greet/greet.go`, and the only signal is the unrelated `fixture state
+unchanged after the probes` failure at the very end of the run. Assert the restore actually happened
+instead of `|| true`.
+
+-       git -C "$wdir" reset -q 2>/dev/null || true
++       git -C "$wdir" reset -q 2>"$root/$wt-reset.err" || bad "$wt: could not reset index: $(cat "$root/$wt-reset.err")"
+
+
+─── tests/workspace-mounts.test.sh:190-190 ───
+[bug · medium] This restore hand-copies the identity record format and can silently write poisoned
+state: if `identity/workspace-id.sh` fails or its output format changes, the command substitution
+yields empty output and `repo-group:` is written as blank, which will make any *later* consumer (or
+a re-run sharing the state root) fail the identity check for reasons unrelated to the code under
+test. `$(cd "$repo" && pwd -P)` also has to coincidentally match the generator's own
+canonicalisation (symlinked `$HOME` on macOS is exactly where that diverges). Capture the original
+record before the mismatch tests and restore it verbatim.
+
+
+
+─── tests/workspace-mounts.test.sh:65-65 ───
+[documentation · low] Stale comment: there is no `wrun` helper in this file (it was clearly
+inlined), so the line points at something that does not exist and hides the more useful caveat — the
+binds below are *hand-written copies* of the generator's mounts and will drift silently if
+`workspace-compose.sh` changes. Related brittleness: `[ "$(grep -c 'type: bind' ...)" -eq 2/-eq 3 ]`
+asserts an incidental serialization detail; switching the generator to `volumes: ["path:path"]`
+shorthand would fail this suite even though the contract is unchanged. Prefer asserting the mount
+*sources* that the contract cares about.
+
+
+
+─── workspace/workspace-lifecycle.sh:33-33 ───
+[security · high] Arg validation conflates two very different errors: a missing/unreadable compose
+file (or a directory passed by mistake) produces `exit 2` plus the full usage banner, exactly like a
+typo in the command name, so callers/CI can't distinguish "bad invocation" from "file gone". Also,
+every command except `attach` silently ignores surplus positionals — `workspace-lifecycle.sh stop
+ws.yaml --force` proceeds as if the flag were understood. Suggest a specific `fail "compose file not
+found: $file"` and rejecting `$#` leftovers for the no-arg commands.
+
+
+
+─── workspace/workspace-lifecycle.sh:48-50 ───
+[bug · high] Compose identity metadata (project name, image, volume) is scraped or constructed
+rather than resolved and validated; this can select wrong values, skip safety checks, cause
+pipefail/SIGPIPE, and make destructive operations target the wrong project or volume. Resolve
+metadata through Compose, pin the validated project name, and verify labels or ownership before
+removal.
+
+
+
+─── workspace/workspace-lifecycle.sh:52-54 ───
+[bug · medium] The lifecycle helper treats docker compose ps -q output as both running and existing
+container identity, ignores stopped containers, and re-invokes it multiple times, causing TOCTOU and
+incorrect behavior for liveness, existence, recreate, clear-caches, and stop messaging. Use distinct
+helpers for running and existing ids and capture ids once.
+
+
+
+─── workspace/workspace-lifecycle.sh:75-77 ───
+[bug · high] `docker compose up -d` pulls a missing image by default, and the generated file
+(workspace-compose.sh) emits no `pull_policy`, so `start`/`recreate` can download an arbitrary tag
+from a registry — directly contradicting the header's "startup never downloads" claim and the
+`validate` image-present gate, which callers are free to skip. Enforce the invariant where the
+containers actually come up, e.g. `dc up -d --no-pull workspace` (Compose v2.11+), or repeat the
+image-inspect check in `start` and `recreate`.
+
+
+
+─── identity/workspace-id.sh:49-49 ───
+[security · medium] Git commands inherit ambient GIT_DIR/GIT_WORK_TREE/GIT_COMMON_DIR and related
+configuration, so identity and compose path resolution can be redirected away from the intended
+checkout. Clear Git environment variables and operate on canonical paths before resolving identity
+or mounts.
+
++ unset GIT_DIR GIT_WORK_TREE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
++       GIT_NAMESPACE GIT_CEILING_DIRECTORIES GIT_CONFIG_COUNT \
++       GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM
++
+  toplevel="$(git -C "$checkout" rev-parse --show-toplevel 2>/dev/null)" ||
+
+
+─── identity/workspace-id.sh:51-51 ───
+[bug · high] Resolved paths (checkout toplevel, canonical path, git common dir, state root, and
+state dir) are not consistently validated as non-empty and absolute; cd failures, relative git
+output, relative or unset state roots, or empty values can poison identity or bind mounts. Validate
+paths explicitly and fail with a clear message.
+
+- canonical="$(cd "$toplevel" && pwd -P)"
++ [ -n "$toplevel" ] || fail "git returned an empty toplevel for $checkout"
++ canonical="$(cd "$toplevel" && pwd -P)" ||
++       fail "cannot resolve the toplevel directory: $toplevel"
++ [ -n "$canonical" ] || fail "empty canonical path for $checkout"
++ case "$canonical" in
++ /*) ;;
++ *) fail "canonical path is not absolute: $canonical" ;;
++ esac
+
+
+─── identity/workspace-id.sh:61-62 ───
+[bug · medium] If none of `sha256sum`/`shasum`/`openssl` exists (busybox/slim image), the `else`
+branch runs a missing command; combined with `set -e -o pipefail` the assignment at `ws_hash=`
+aborts the script with exit 127 and an unrelated "command not found" line — no `workspace-id:`
+diagnostic, and callers (`workspace-compose.sh`) just see a failure. Likewise a tool that exists but
+errors yields an empty hash surfaced as the misleading "derived workspace id out of form". Fail
+explicitly, and validate the digest length.
+
+-       else openssl dgst -sha256 -r
++       elif command -v openssl >/dev/null 2>&1; then openssl dgst -sha256 -r
++       else
++               printf 'workspace-id: error: no sha256 tool found (need sha256sum, shasum or openssl)\n' >&2
++               return 127
+        fi | cut -d' ' -f1
+
+
+─── identity/workspace-id.sh:31-32 ───
+[bug · low] `--state-dir ""` passes the `-ge 2` check, is stored as empty, and then the `[ -n
+"$state_dir" ]` guard makes the script silently skip both record writing and record verification — a
+caller whose variable was unset (e.g. an empty `HESTIA_STATE_ROOT` in the compose helper) gets no
+binding check at all instead of an error.
+
+                [ "$#" -ge 2 ] || usage
++               [ -n "$2" ] || usage
+                state_dir="$2"
+
+
+─── identity/workspace-id.sh:110-111 ───
+[bug · medium] Temporary files use predictable names and lack cleanup on failure, creating
+collision, symlink, and stale-file risks. Use mktemp in the target directory and remove the
+temporary file on error.
+
+                mkdir -p "$state_dir"
+-               tmp="$state_dir/identity.record.tmp.$$"
++               tmp="$(mktemp "$state_dir/.identity.record.XXXXXX")"
++               trap 'rm -f "$tmp"' EXIT
++               # then create the record exclusively (O_EXCL) so a racing writer
++               # cannot clobber it, and re-read + verify after the rename
+
+
+─── identity/workspace-id.sh:110-110 ───
+[security · medium] identity.record is the trust anchor for state reuse, yet it is created with the
+default umask (typically 0755 dir / 0644 file) and is plain text with no integrity. Anyone who can
+write into the state dir can simply plant a record whose `canonical:` matches the victim checkout,
+and the verification below will happily accept it — the string comparison only detects *accidental*
+mismatch, not forgery. If `~/.local/share/hestia/` (or a mounted shared state root) is reachable by
+other uids, lock the mode down; otherwise document explicitly that the record is mistake-prevention
+only and must not be relied on across users.
+
+-               mkdir -p "$state_dir"
++               (umask 077; mkdir -p "$state_dir")
++               chmod 700 "$state_dir" 2>/dev/null || true
+
+
+─── identity/workspace-id.sh:98-100 ───
+[bug · medium] Parsing is too loose to be a safety check. `sed -n 's/^...: //p'` emits *every*
+matching line, so a duplicated key produces a value containing embedded newlines that fails the
+equality test with a confusing "refusing to reuse" message instead of "malformed record"; a record
+whose `canonical:` line contains a newline cannot round-trip at all (paths with newlines break
+silently); a record that is a directory or unreadable makes the substitution fail and `set -e`
+aborts the script before the intended `unreadable identity record` message is ever reached; and the
+recorded ids are never run through `id_ok`, so a truncated/partial record is reported as a bogus
+"collision". Read the file once, assert exactly one line per known key and no extra keys, and
+validate ids before comparing. There is also no test coverage for any of these record-shape cases
+(nor for a missing hash tool or concurrent first-write) — the acceptance suite only exercises the
+happy path plus one forged-id case.
+
+
+
+─── identity/workspace-id.sh:92-92 ───
+[maintainability · low] The label here disagrees with the comment and identity/README.md claim that
+the parent is "the main checkout". For submodules git reports `.../.git/modules/<name>`, so the
+parent is `modules` and every submodule of a superproject gets the same label `hestia-modules-…`
+(and its own group, separate from the parent repo). With `--separate-git-dir`, `GIT_COMMON_DIR` or a
+bare-metadata layout the parent is an unrelated directory. The hash keeps ids unique, so this is not
+a correctness break, but the label becomes actively misleading — either special-case
+`/modules/<name>` (take `dirname` twice) or state the behaviour in README.
+
+- repo_group="hestia-$(label_for "$(basename "$(dirname "$common")")")-${grp_hash}"
++ grp_parent="$(dirname "$common")"
++ case "$grp_parent" in
++ */.git/modules) grp_parent="$(dirname "$grp_parent")" ;;
++ esac
++ repo_group="hestia-$(label_for "$(basename "$grp_parent")")-${grp_hash}"
+
+
+─── identity/workspace-id.sh:20-20 ───
+[bug · low] The sanitiser and the length bound depend on locale-dependent `tr`/`sed`/`cut`
+behaviour, and the label here is embedded verbatim into the Docker Compose project name. With
+non-ASCII or invalid-multibyte bytes in a basename (Latin-1, mixed-encoding mounts, or paths coming
+from `git config core.worktree`), GNU sed under a UTF-8 locale and under `C` can disagree — and a
+locale change for the same checkout then produces a different `workspace:`/`repo-group:` id,
+orphaning the previously recorded state (which the record check reports as an unfixable "identity
+collision"). Pin the locale for reproducible identity.
+
+  set -euo pipefail
++ export LC_ALL=C
+
+
+─── identity/workspace-id.sh:35-35 ───
+[style · low] There is no `--` terminator and option/positional order is fixed: `workspace-id.sh
+/path --state-dir d` is rejected as a usage error, a checkout path that begins with `-` cannot be
+expressed at all, and `--state-dir -x` silently takes `-x` as the directory (it is never
+re-validated by the `case`). Cheap to harden and it avoids surprises when the path comes from a
+variable.
+
++       --) shift; break ;;
+        -*) usage ;;
+
+
+─── workspace/workspace-compose.sh:138-138 ───
+[security · high] Unquoted YAML scalars for generated `name` and `image` can be broken or injected:
+both identity-derived values and `--image` may contain YAML special characters/newlines, and the
+header comment also interpolates `$canonical`. Quote/validate all generated values and reject
+newline/control characters.
+
+
+
+─── .gitignore:12-13 ───
+[bug · medium] .gitignore and .dockerignore use broad .env.* / **/.env.* ignores with an exact
+.env.example exception. This only whitelists/re-includes that literal basename, so other
+conventional examples (.env.sample, .env.template, .env.dist, .env.production.example,
+.env.example.local, **/.env.*.example) remain ignored or absent, contradicting the comment that
+example templates are allowed/expected. The two ignore files must agree on the exact spelling,
+otherwise tracked examples and image contents can diverge. Either define one canonical example
+filename in the comments and keep the exception matching it, or whitelist all accepted example
+variants explicitly.
+
+  .env.*
++ # canonical template name; keep in sync with .dockerignore
+  !.env.example
++ !.env.*.example
+
+
+─── .gitignore:17-18 ───
+[security · medium] The .gitignore *.key/*.pem rules and .dockerignore **/*.key/**.pem secret rules
+are under-covered and over-covered. They miss common credential-shaped files that should never be
+committed or added to a build context, including extensionless SSH/private keys (id_rsa, id_ed25519,
+identity), Java/Apple keystore and bundle formats (*.p12, *.pfx, *.p8, *.jks, *.keystore, *.der),
+tool credentials (.netrc, .npmrc, .pypirc, .git-credentials, credentials), cloud config dirs (.aws,
+.kube, .config/gcloud), and variant names such as secret/.secrets/secrets.local when only secrets is
+listed. They are also unanchored, so legitimate public CA chains, JWKS, and test fixtures may be
+silently dropped. Either add the missing extension/path set deliberately and anchor rules to
+directories that hold local material, or use a tighter allow-list/deny-by-default approach where
+appropriate.
+
+  *.key
+  *.pem
++ *.p12
++ *.pfx
++ *.jks
++ *.keystore
++ id_rsa
++ id_ed25519
++ .netrc
++ .npmrc
++ .pypirc
+
+
+─── .gitignore:25-27 ───
+[bug · medium] The rule is an allow-list of two hard-coded subdirectories, but the comment states an
+absolute policy ("local hydrated state is never committed"). Two failure modes: (a) any future
+hydrated path — `.epiq/state/`, `.epiq/cache/`, `.epiq/worktrees/`, `.epiq/*.sqlite` — is
+committable and will only be caught by review after the fact; (b) both patterns contain a slash,
+which anchors them to the repository root, so a nested `.epiq/events/` created inside a generated
+workspace/subdirectory is *not* ignored. Since this repo generates per-project workspaces, nesting
+is the realistic case. Inverting the rule (ignore the whole directory, then negate only the config
+that is genuinely versioned) matches the stated intent and is nesting-safe.
+
+- # [epiq]: local hydrated state is never committed
+- .epiq/events/
+- .epiq/log/
++ # [epiq]: local hydrated state is never committed; negate tracked config explicitly
++ .epiq/
++ # e.g. !.epiq/config.toml
+
+
+─── .gitignore:21-23 ───
+[security · low] `*.log` is the loosest rule in the file and it has a coverage hole in both
+directions. Files that logs actually end up as in this workflow — extensionless sinks
+(`logs/stdout`, `logs/hestia`), rotated/compressed files (`*.log.1`, `*.log.gz`), `nohup.out`,
+`*.out`, `*.err` — are not ignored, so `git status` stays noisy and a `git add -A` can commit
+diagnostic output that, per the PR notes, contains `mise` trust decisions, `safe.directory` values
+and workspace paths. Conversely, the blanket `*.log` will also swallow any log file a test
+intentionally tracks as a golden fixture. Worth making the policy deliberate: ignore the output
+directories rather than a single extension.
+
+  .cache/
+  .tmp/
+  *.log
++ *.log.*
++ logs/
++ nohup.out
+
+
+─── .gitignore:3-3 ───
+[other · low] Nothing in the repo, docs, or tooling ever references `.zcode/` (the only match in the
+tree is this line). Either the directory name is a typo for the editor/agent state dir actually used
+(e.g. `.zed/`, `.zcode` vs `.zencoder`), in which case the real noise directory is still un-ignored
+and will show up in `git status`/be force-added, or it is a personal leftover that should not be in
+a shared ignore file. Please confirm the intended path.
+
+
+
+─── .dockerignore:16-17 ───
+[security · medium] The ignore set is a curated block-list that diverges from `.gitignore`, so
+untracked local state still gets tarred into every build context. `.gitignore` excludes `.zcode/`
+and `.epiq/` (`events/`, `log/`), but neither appears here, so hydrated per-workspace state is
+uploaded to the daemon on every `docker build .`. `docs/architecture.md` says credentials/sessions
+live "outside source/build context" and AGENTS.md requires keeping them out of the build context —
+this file is the enforcement point for that claim.
+
+Since the image is intended to host an authenticated agent, consider inverting the strategy:
+deny-by-default (`*`) plus an explicit allow-list of what the Dockerfile actually copies
+(`!fixtures/**`, `!Dockerfile`). Today the Dockerfile only COPYs
+`fixtures/synthetic/{mise.toml,go.mod,cmd,greet}`, so an allow-list is cheap, removes the whole
+class of "forgot to ignore X" leaks, and also shrinks the context.
+
+  **/mise.local.toml
+  **/.mise.local.toml
++ **/.epiq
++ **/.zcode
+
+
+─── .dockerignore:25-25 ───
+[maintainability · low] `**/*.log`, `**/*.key` and `**/*.pem` are unanchored and therefore apply
+inside `fixtures/` as well, which the Dockerfile explicitly COPYs (lines 72-75). Nothing under
+`fixtures/` matches today, so the build is fine, but this is a latent silent failure: files removed
+by `.dockerignore` never trigger a COPY error — `COPY fixtures/synthetic/greet` would simply succeed
+with the fixture cert/key/log missing, so a future TLS- or log-handling fixture test would fail
+confusingly at runtime instead of at build time. Consider scoping the secret ignores away from the
+fixture tree (e.g. add `!**/fixtures/**/*.pem`, `!**/fixtures/**/*.key`) or documenting that
+fixtures must not use those extensions.
+
+  **/*.log
++ !**/fixtures/**/*.key
++ !**/fixtures/**/*.pem
++ !**/fixtures/**/*.log
+
+
+─── Dockerfile:18-18 ───
+[bug · medium] The base is pinned by the **OCI index** digest, but `--platform` is not pinned while
+the mise artifact path is hard-coded to `linux-arm64`. On an amd64 builder (any non-Apple-Silicon CI
+runner) BuildKit resolves the index to the host platform, so you get an amd64 rootfs with an arm64
+`mise` binary: the `mise --version` step below fails with an exec-format error (or, with
+qemu/rosetta emulation enabled, the build *succeeds* and ships an image whose declared toolchain is
+for the wrong architecture). Pin the platform explicitly so the arch contract is enforced by the
+build rather than by the host.
+
+- FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS base
++ FROM --platform=linux/arm64 debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS base
+
+
+─── Dockerfile:20-21 ───
+[security · medium] Both pinning inputs are overridable `ARG`s, and the digest is *self-consistent*
+with the URL: `docker build --build-arg MISE_VERSION=vX --build-arg
+MISE_SHA256=<digest-of-X's-tarball>` fully bypasses the integrity story, because the checksum is
+only compared against whatever the same command line supplied. There is also no cryptographic
+provenance (the release API digest is unsigned metadata, as the header admits). Since this binary
+ends up executing inside a container that will host an authenticated agent, make the pin
+non-negotiable: hard-code the URL+digest (no ARG), assert the running version matches the pinned
+tag, and ideally verify the release's signed attestation (cosign/SLSA) rather than trusting the
+transport.
+
+
+
+─── Dockerfile:40-41 ───
+[security · high] The image-declared mise state placed under /home/dev is not an immutable trust
+boundary. MISE_DATA_DIR=/home/dev/.local/share/mise puts shims, installs, config/trust state in a
+dev-owned tree, and the global mise.toml copied to /home/dev/.config/mise/config.toml is similarly
+controllable: the runtime user can rewrite the data dir contents, shadow system tools via PATH,
+rename/move .config (only needs write on the parent), or simply redirect config/data via
+MISE_CONFIG_FILE/MISE_GLOBAL_CONFIG_FILE/env per process. MISE_PARANOID trust records stored under
+that data dir can therefore be forged without invoking mise trust, and MISE_PARANOID=1 is set only
+in the fixture-tools stage, so builds targeting base lack paranoid trust. Move image-declared
+data/config/trust to root-owned system paths (e.g. /opt/mise or /etc/mise), make them read-only for
+the runtime uid, and enforce the boundary with mount/read-only/no-new-privileges policy; set
+MISE_PARANOID=1 in base and verify mise's actual trust store location.
+
+
+
+─── Dockerfile:38-38 ───
+[bug · low] `ENV MISE_DATA_DIR` is declared *after* this RUN, so `mise --version` executes as root
+with the default data/config locations and creates `/root/.config/mise` and
+`/root/.local/share/mise` in the base layer — dead, root-owned mise state that is never used by the
+`dev` runtime user (and that makes `docker run --user root` behave differently from the documented
+runtime). Move the `ENV` block above the install RUN, or clean `/root/.config/mise
+/root/.local/share/mise` here. Also worth asserting the binary really is the pinned release: `test
+"$(mise --version)" = "${MISE_VERSION#v}"` catches a tag/asset mismatch that the API digest alone
+would not.
+
+
+
+─── Dockerfile:66-66 ───
+[bug · medium] The ownership guarantee only holds for an **empty named volume**, where Docker copies
+the image directory's ownership into the volume. It does not hold for (a) a pre-existing volume
+created by an earlier image/uid, (b) a bind mount, where the host directory's ownership wins
+(Docker-created-missing bind dirs are root:root), or (c) a `--user` override / Kubernetes
+`runAsUser` with a different uid. In all of those the first `GOCACHE`/`GOMODCACHE` write under
+`/hestia/cache` fails with EACCES — and because `workspace-compose.sh` unconditionally mounts
+`linux-caches:/hestia/cache` with `GOCACHE: /hestia/cache/go/build`, that is a build-time failure at
+container start, not a graceful fallback. Consider an idempotent `install -d -o "$UID" -g "$GID"
+/hestia/cache` in the entrypoint, or a group-writable dir with a documented gid, rather than a
+single uid-1000 chown baked into the layer.
+
+
+
+─── Dockerfile:77-77 ───
+[bug · medium] `GOTOOLCHAIN` is left at Go's default `auto`. For the fixture itself it happens not
+to fire (mise.toml installs go 1.27.1 and the fixture's go.mod requires `go 1.27`), but at runtime a
+mounted workspace whose `go.mod` declares a newer `go`/`toolchain` directive makes the `go` command
+silently download and execute a different toolchain into the dev-writable cache (network egress,
+non-hermetic build, and a new toolchain outside the image-declared set). That contradicts the
+header's "Startup installs nothing; toolchains are declared image layers" claim. Pin it explicitly,
+e.g. `ENV GOTOOLCHAIN=local` next to `MISE_PARANOID`.
+
+
+
+─── Dockerfile:83-83 ───
+[maintainability · medium] The layer is not as clean as the comment claims. `go build ./...` / `go
+test ./...` here run **without** the `GOCACHE`/`GOMODCACHE` redirection that `workspace-compose.sh`
+applies at runtime, so they write the whole dependency module cache (~/go/pkg/mod) and the
+build/test cache (~/cache/go-build) into the `fixture-tools` image layer — hundreds of MB of
+avoidable size, plus compiled object code and test binaries derived from the fixture that survive
+`rm -rf /tmp/fixture-src`. So "its source is removed in the same layer and never ships in the image"
+is true only of the checked-out tree, not of the build artifacts. Either point
+`GOCACHE`/`GOMODCACHE` at a throwaway dir for this RUN, or `go clean -cache -modcache -testcache`
+(and `rm -rf` the resulting trees) before the layer ends.
+
+
+
+
+──────── Project Summary ────────
+
+# Project Summary — Review Findings
+
+**Scope:** 57 review comments across 10 files
+**Main areas:** shell-based tests, workspace identity/lifecycle scripts, Docker Compose generation, ignore-file hygiene, Dockerfile supply-chain and runtime behavior
+
+---
+
+## Comment Distribution
+
+| File | Comments | Primary Concerns |
+|---|---:|---|
+| `tests/workspace-lifecycle.test.sh` | 10 | Unsafe teardown, weak assertions, missing preflights, false-pass/false-abort risk |
+| `tests/workspace-id.test.sh` | 8 | Brittle helper contracts, missing boundary coverage, artifact loss on failure |
+| `tests/workspace-cache-clear.test.sh` | 5 | Insufficient scoped-removal evidence, validation gaps, destructive-operation risks |
+| `tests/workspace-mounts.test.sh` | 5 | Testing hand-written binds instead of generated compose files, cleanup leaks |
+| `workspace/workspace-lifecycle.sh` | 4 | Ambiguous validation, compose metadata resolution gaps, image pull behavior |
+| `identity/workspace-id.sh` | 10 | Path/env hardening, record parsing/security, locale/tooling assumptions |
+| `workspace/workspace-compose.sh` | 1 | Unquoted/injectable YAML scalars |
+| `.gitignore` | 5 | Secret/state hygiene gaps |
+| `.dockerignore` | 2 | Divergence from `.gitignore`, build-context exclusion risks |
+| `Dockerfile` | 7 | Architecture pinning, supply-chain integrity, mutable toolchain state, cache/ownership behavior |
+
+---
+
+# Overall Themes
+
+The comments point to several systemic risks rather than isolated typos:
+
+1. **The test harness can produce misleading outcomes.**
+   Many tests combine `set -e`, suppressed stderr, command substitutions, and aggressive teardown in ways that can cause raw aborts, false passes, false failures, or loss of diagnostic evidence.
+
+2. **Destructive lifecycle operations are not validated strongly enough.**
+   Workspace IDs, compose project names, volume names, paths, and fixture roots are sometimes derived or scraped without enough validation. This creates risk of operating on the wrong project/volume or destroying evidence while cleanup is still failing.
+
+3. **Identity and state trust are brittle.**
+   `identity/workspace-id.sh` is central to trust, path resolution, compose project naming, and state reuse, but the review found gaps in environment isolation, parsing strictness, path validation, temporary-file handling, permissions, and locale-dependent sanitization.
+
+4. **Docker Compose generation and runtime behavior need tighter contracts.**
+   Generated compose files can inherit injection risk; lifecycle commands may resolve identity metadata loosely; `docker compose up -d` may pull images by default even when the design claims startup never downloads.
+
+5. **Build-context and image supply-chain hygiene is incomplete.**
+   `.gitignore`, `.dockerignore`, and `Dockerfile` issues include unignored secrets/state, architecture-dependent pinning, overridable integrity inputs, mutable toolchain config, and stale comments about ownership/caching.
+
+---
+
+# Component Summaries
+
+---
+
+## 1. `tests/workspace-lifecycle.test.sh`
+
+**Comment count:** 10
+**Inferred severity:** High
+**Core problem:** The lifecycle test suite has several correctness and safety issues that can mask failures, skip intended coverage, or destroy evidence during cleanup.
+
+### Key Findings
+
+#### 1. Missing preflight/SKIP guards for required tools
+
+The tests do not reliably probe for required external tools or plugins, such as the Docker Compose plugin and `mise`/toolchain prerequisites.
+
+This means hosts missing prerequisites may produce raw failures or aborts instead of a clean CI skip signal.
+
+**Impact:**
+
+- False-negative CI failures on unsupported hosts.
+- Hard-to-distinguish infrastructure problem from product regression.
+
+**Suggested fix:**
+
+- Add explicit preflight checks:
+  - `docker compose version`
+  - `mise --version` or equivalent toolchain check
+  - required plugin availability
+- Emit a recognized SKIP status when prerequisites are absent.
+
+---
+
+#### 2. Command substitutions under `set -e` abort before reporting
+
+Several assertions use command substitutions in ways that are not protected from nonzero exit statuses. Under `set -e`, a failing substitution can abort the script before the intended `ok`/`bad` reporting.
+
+This includes cases where a missing or unexpected result is itself the intended test outcome.
+
+**Impact:**
+
+- Tests fail loudly for the wrong reason.
+- Negative-path tests may never reach their intended assertion.
+
+**Suggested fix:**
+
+- Wrap command substitutions in explicit status handling:
+  - Use `if out=$(cmd 2>&1); then ... else ... fi`
+  - Or capture status with `|| status=$?`
+  - Avoid bare command substitutions that can abort under `set -e`.
+
+---
+
+#### 3. Multi-step lifecycle chains are collapsed into one opaque status
+
+Operations such as trust/marker/build/test/start are executed or treated as one combined status. This makes it impossible to tell whether the failure was in state setup, marker creation, build, test execution, or startup.
+
+**Impact:**
+
+- Poor failure attribution.
+- Harder debugging.
+- Cached results may mask whether tests actually executed.
+
+**Suggested fix:**
+
+- Split each lifecycle phase into its own guarded step.
+- Record separate exit statuses and logs:
+  - `trust`
+  - `marker`
+  - `build`
+  - `test`
+  - `start`
+- Force non-cached test execution where persistence is being tested.
+
+---
+
+#### 4. Fallible lifecycle/snapshot commands lack explicit reporting
+
+Some lifecycle or snapshot commands are run without explicit status checks or `ok`/`bad` reporting. A failure can abort the suite with no summary or mislead later assertions.
+
+**Impact:**
+
+- Suite termination without useful diagnostics.
+- Later failures may be attributed to the wrong operation.
+
+**Suggested fix:**
+
+- Wrap all fallible commands.
+- Capture stdout/stderr to log files.
+- Check exit status and report the relevant log on failure.
+
+---
+
+#### 5. Identity values from generated compose files are not validated
+
+Identity values extracted from generated compose files — such as name, project, or workspace ID — are not checked for being exactly one well-formed value.
+
+If values are empty or multiline, paths and project names can collapse or become malformed.
+
+**Impact:**
+
+- False passes.
+- Wrong volume/path/project derivation.
+- Potential destructive operations against unintended targets.
+
+**Suggested fix:**
+
+- Require exactly one non-empty value.
+- Validate against a conservative regex, e.g. compose-safe identifier chars only.
+- Do not derive paths/volumes from unvalidated extracted values.
+
+---
+
+#### 6. Docker Compose `exec`/`run` assertions need safer invocation
+
+Compose `exec`/`run` commands used for assertions should pass `-T` and construct commands safely with positional arguments or robust quoting.
+
+**Impact:**
+
+- TTY behavior can introduce CRLF or terminal artifacts.
+- Injection risk if user-provided or derived values are not quoted.
+- Empty output can produce misleading diagnostics.
+
+**Suggested fix:**
+
+- Use `docker compose exec -T ...`
+- Pass commands as separate arguments rather than embedded shell strings.
+- Avoid eval-like patterns.
+
+---
+
+#### 7. Advertised `remove-runtime` coverage is missing
+
+The test header advertises a `remove-runtime` leg in the lifecycle journey, but the suite does not actually assert that path. `remove-runtime` is only invoked from cleanup with discarded stdout/stderr and `|| true`.
+
+**Impact:**
+
+- A regression in `remove-runtime` is invisible.
+- Cleanup can succeed or fail without affecting test result.
+- Volume/state removal behavior may not be tested.
+
+**Suggested fix:**
+
+- Add an explicit `remove-runtime` assertion.
+- Capture and report stdout/stderr.
+- Verify that only expected volumes/state are removed.
+- Ensure failures in `remove-runtime` are surfaced.
+
+---
+
+#### 8. Teardown can destroy evidence while cleanup is still failing
+
+Every teardown step is silenced and `|| true`-ed. Then cleanup unconditionally runs `rm -rf` on `$fx` and `$root`.
+
+If `remove-runtime` or compose `down` fails, the test may report nothing while destroying directories that may still be referenced by running containers or leftover state.
+
+**Impact:**
+
+- Loss of diagnostic evidence.
+- Potentially unsafe cleanup on partial failure.
+- False sense of successful teardown.
+
+**Suggested fix:**
+
+- Do not unconditionally destroy state after failed teardown.
+- Preserve `$fx` and `$root` when cleanup fails.
+- Report cleanup failure clearly.
+- Consider an artifact path or keep-on-failure mode.
+
+---
+
+#### 9. Generator/helper stderr is discarded
+
+Generator and helper invocations discard stderr. Under `set -e`, this can make failures hard to diagnose and can cause later file/identity checks to be unreachable or misleading.
+
+**Impact:**
+
+- Real causes hidden.
+- Failures appear later in confusing places.
+
+**Suggested fix:**
+
+- Capture stderr to logs.
+- Check command status explicitly.
+- Print the relevant log tail on failure.
+
+---
+
+#### 10. Pinned image tag is duplicated in test and product code
+
+The test hard-codes `image="hestia-fixture-tools:2026-09-09"`, duplicating the pin in `workspace/workspace-compose.sh`. These can drift.
+
+After a bump, a preflight image inspect may pass for the old tag or skip for the new tag, causing the real symptom to appear later as a confusing failure.
+
+**Impact:**
+
+- CI/local mismatch.
+- Drift between test assumptions and generated compose.
+- Misleading preflight behavior.
+
+**Suggested fix:**
+
+- Source the image tag from a single constant file.
+- Or extract it from `workspace/workspace-compose.sh` in a safe, validated way.
+- Add a regression test that prevents duplicated tag literals.
+
+---
+
+## 2. `tests/workspace-id.test.sh`
+
+**Comment count:** 8
+**Inferred severity:** High
+**Core problem:** Workspace identity tests do not reliably distinguish success from malformed output, missing tools, or environment differences, and they discard evidence on failure.
+
+### Key Findings
+
+#### 1. Helpers do not validate successful non-empty fields
+
+Test helpers for workspace-id do not distinguish:
+
+- successful non-empty field
+- failed command with empty output
+- malformed multi-line output
+
+Comparisons and negative assertions can pass vacuously or abort without diagnosis.
+
+**Impact:**
+
+- False passes.
+- Broken tool can appear to satisfy expected failure.
+- Empty output can match empty expectation accidentally.
+
+**Suggested fix:**
+
+- Introduce a strict helper that checks:
+  - exit status
+  - stdout/stderr separately
+  - exactly one non-empty field
+  - field format constraints
+
+---
+
+#### 2. No preflight for the tested script itself
+
+There is no check that `$wid` exists and is executable. Current checks treat any nonzero status as the expected rejection.
+
+If `identity/workspace-id.sh` is missing, non-executable, or fails at the top due to syntax error or missing `git`, the test may pass incorrectly.
+
+**Impact:**
+
+- Major false-positive risk.
+- Environment/tooling problems can masquerade as product behavior.
+
+**Suggested fix:**
+
+- Add:
+  - `[ -f "$wid" ]`
+  - `[ -x "$wid" ]`
+  - `bash -n "$wid"` or equivalent syntax check where appropriate
+  - required external tool checks, e.g. `git`
+
+---
+
+#### 3. Failure contracts are asserted by human-readable prose only
+
+The tests assert failure using UX copy such as `refusing to reuse` and `collision`. Those strings may be changed in future PRs even when behavior remains correct.
+
+**Impact:**
+
+- Brittle tests.
+- Legitimate copy changes break tests.
+- Actual contract may be under-specified.
+
+**Suggested fix:**
+
+- Assert stable exit codes.
+- Assert machine-readable reason codes where available.
+- Keep prose assertions as secondary, not primary, validation.
+
+---
+
+#### 4. Record format re-implemented with hand-written regex
+
+The test parses the identity record format with its own regex instead of using the tool’s own canonical reported path. It also conflates different failure modes: missing file, malformed file, old record not rewritten, etc.
+
+**Impact:**
+
+- Test can drift from the real record contract.
+- Diagnostics can be misleading.
+- Missing file and rewritten old file may produce similar failure output.
+
+**Suggested fix:**
+
+- Use the tool’s reported fields or a shared parsing helper.
+- Distinguish:
+  - missing record
+  - malformed record
+  - expected rewrite
+  - stale/old record remains
+
+---
+
+#### 5. Git commands suppress diagnostics and assume modern Git
+
+Calls like `git switch -c`, `git init -b main`, and `git worktree add -b` run under `set -e` with diagnostics discarded. Environment differences, such as older Git versions or missing features, can produce hidden failures.
+
+**Impact:**
+
+- Tests may abort with insufficient diagnostics.
+- CI environment differences can cause unexplained failures.
+
+**Suggested fix:**
+
+- Capture Git stderr to logs.
+- Check exit statuses.
+- Either add Git version preflight or use compatibility-safe commands.
+
+---
+
+#### 6. EXIT trap deletes the sandbox, removing failure evidence
+
+When a check fails, the trap deletes the sandbox before the user can inspect referenced artifacts such as:
+
+- `$root/err.txt`
+- `$root/err2.txt`
+- `$st/identity.record`
+- moved checkouts
+- worktree registration state
+
+**Impact:**
+
+- Failures cannot be reproduced or inspected.
+- Test diagnostics point at files that have already been deleted.
+
+**Suggested fix:**
+
+- Keep sandbox on failure.
+- Print artifact path before exit.
+- Use explicit cleanup only on success, or provide `KEEP_ARTIFACTS=1` behavior.
+
+---
+
+#### 7. `make_repo` does not isolate global Git configuration
+
+The helper neutralizes some config such as user name/email and GPG signing, but commits may still inherit global Git config, including hooks, templates, `includeIf`, and excludes files.
+
+**Impact:**
+
+- Developer or CI environment can change test behavior.
+- Global hooks may block or alter commits.
+- Tests are not hermetic.
+
+**Suggested fix:**
+
+- Set an isolated `HOME` or `XDG_CONFIG_HOME`.
+- Use `GIT_CONFIG_GLOBAL=/dev/null` or equivalent.
+- Disable hooks and templates explicitly.
+- Consider a bare config sandbox for tests.
+
+---
+
+#### 8. Advertised sanitization/bounds/collision coverage is incomplete
+
+The header claims coverage of sanitization, bounds, and ID collision, but several boundary cases are untested. Examples mentioned include:
+
+- basename that sanitizes to empty
+- non-ASCII names
+- other edge cases implied by the claimed contract
+
+**Impact:**
+
+- Important negative cases missing.
+- Regressions in sanitization or bounds handling may go undetected.
+
+**Suggested fix:**
+
+- Add table-driven tests for identity edge cases:
+  - empty sanitized result
+  - Unicode/non-ASCII path names
+  - paths beginning with `-`
+  - very long labels
+  - submodule labels
+  - duplicate/malformed records
+  - missing hash tools
+  - relative or unset state roots
+
+---
+
+## 3. `tests/workspace-cache-clear.test.sh`
+
+**Comment count:** 5
+**Inferred severity:** High
+**Core problem:** The cache-clear tests do not adequately prove scoped removal or safe cleanup behavior.
+
+### Key Findings
+
+#### 1. EXIT trap installed too late
+
+The cleanup trap is installed after directory creation, `mktemp`, fixture creation, and generator invocation.
+
+If failure happens before the trap is installed, the fresh sandbox and state tree may leak. If `make-fixture.sh` dies midway, partial fixture state can also remain.
+
+**Impact:**
+
+- Temporary sandbox leakage.
+- Dirty local state.
+- Possible cross-test interference.
+
+**Suggested fix:**
+
+- Install the trap immediately after `$root` is created.
+- Ensure cleanup is idempotent.
+- Prefer creating the sandbox before doing fallible setup.
+
+---
+
+#### 2. Fixture root is extracted from logs without validation
+
+The fixture root parsed from `make-fixture` logs is not validated. Empty or multiline values could be passed to file operations or `rm -rf`.
+
+**Impact:**
+
+- Destructive risk.
+- Wrong path operations.
+- Malformed parser output could delete unexpected paths.
+
+**Suggested fix:**
+
+- Require exactly one matching line.
+- Validate that the path exists.
+- Ensure it is under the expected test sandbox.
+- Canonicalize before use.
+
+---
+
+#### 3. Scoped removal contract is not fully tested
+
+The documented goal is that `clear-caches` removes exactly `<workspace-id>_linux-caches` and no other volumes. The test creates insufficient decoy state.
+
+It does not clearly assert that:
+
+- unrelated volumes are untouched
+- second workspace volumes are untouched
+- containers/images are not removed unexpectedly
+
+**Impact:**
+
+- Overbroad destructive behavior can pass tests.
+- “No other volumes” claim is not proven.
+
+**Suggested fix:**
+
+- Create decoy resources before clear:
+  - unrelated volume
+  - second workspace volume
+  - container
+  - image
+- Assert only the target cache volume is removed.
+
+---
+
+#### 4. Multi-line command output is embedded in test names
+
+The raw output from `clear-caches` includes lines such as “stopping workspace first…” and confirmation text. Embedding that directly into a single test name breaks the line-oriented `ok - ...` / `FAIL - ...` format used for pass/fail accounting and evidence grep.
+
+**Impact:**
+
+- Flaky or malformed test summaries.
+- Evidence harder to parse.
+- CI log formatting degraded.
+
+**Suggested fix:**
+
+- Keep test names single-line.
+- Store raw output in a log file.
+- Reference the log in failure output.
+
+---
+
+#### 5. Guards only assert exit status, not destructive state
+
+The guards assert that a rejection exits nonzero, but do not prove that rejection leaves everything untouched. If `clear-caches` were to perform destructive work first and then exit nonzero, the current assertions could still pass.
+
+**Impact:**
+
+- “Fail open” destructive behavior can slip through.
+- Safety contract not verified.
+
+**Suggested fix:**
+
+- Capture before/after state:
+  - volumes
+  - compose project resources
+  - container state
+- Assert unchanged state on rejection.
+
+---
+
+## 4. `tests/workspace-mounts.test.sh`
+
+**Comment count:** 5
+**Inferred severity:** High
+**Core problem:** The tests validate hand-written Docker binds rather than generated compose mounts, and leave behind cleanup state.
+
+### Key Findings
+
+#### 1. Exposure-limit and worktree assertions test hand-written binds, not generator output
+
+The mount exposure tests use hand-written `docker run -v` binds instead of generated compose files such as:
+
+- `$root/main.yaml`
+- `$root/$wt.yaml`
+
+**Impact:**
+
+- Generator regressions can go undetected.
+- Tests can pass while real compose files have wrong mounts.
+- Hand-written copy and generator can drift.
+
+**Suggested fix:**
+
+- Run assertions against generated compose files.
+- Parse or inspect compose mount output directly.
+- Add a test that generated mount set matches expected contract.
+
+---
+
+#### 2. Compose-created resources are not cleaned up
+
+`ok`/`bad` assertions run `docker compose run`, but the suite never fully tears down what those invocations create.
+
+`run --rm` removes only the one-off container. Project networks and named volumes persist. Because project names derive from workspace IDs, this can accumulate state across runs.
+
+**Impact:**
+
+- Resource leaks.
+- Cross-test interference.
+- False passes/failures from stale volumes/networks.
+
+**Suggested fix:**
+
+- Track project names/volumes created.
+- Run cleanup with:
+  - `docker compose down -v --remove-orphans`
+  - or explicit `docker network rm` / `docker volume rm`
+- Assert absence after cleanup.
+
+---
+
+#### 3. Git state restoration is best-effort and suppresses errors
+
+The test restores the fixture’s Git state but fully suppresses errors. If container-owned index/objects prevent host Git reset/checkout, due to uid mismatch between host user and image `dev` user, the test may continue with misleading state.
+
+**Impact:**
+
+- Stale or corrupt Git state.
+- Appended comments or test artifacts can become unreliable.
+- uid/gid mismatches hidden.
+
+**Suggested fix:**
+
+- Capture Git restore errors.
+- Fail if restoration does not succeed.
+- Consider restoring inside the container as the same runtime user.
+- Or adjust ownership via a safe helper after container execution.
+
+---
+
+#### 4. Test hand-copies identity record format and can write poisoned state
+
+The restore code manually reconstructs the identity record format. If `identity/workspace-id.sh` fails or changes output format, command substitution can yield empty values, causing `repo-group:` to be written as blank.
+
+**Impact:**
+
+- Poisoned identity state.
+- Later consumers may receive malformed records.
+- Silent propagation of broken assumptions.
+
+**Suggested fix:**
+
+- Use the identity tool to generate/verify record fields.
+- Validate that each field is non-empty and well-formed before writing.
+- Fail immediately if the tool output cannot be parsed.
+
+---
+
+#### 5. Stale `wrun` comment hides a real drift risk
+
+A stale comment refers to a `wrun` helper that no longer exists because it was inlined. More importantly, the comment obscures the real issue: the bind paths below are hand-written copies of generator mounts and can drift silently from `workspace-compose.sh`.
+
+**Impact:**
+
+- Misleading documentation.
+- Hidden maintenance risk.
+- Readers may not realize tests are not exercising the real compose files.
+
+**Suggested fix:**
+
+- Remove stale helper reference.
+- Add explicit caveat: these are hand-written mirrors and must be kept in sync.
+- Better: test generated compose files directly.
+
+---
+
+## 5. `workspace/workspace-lifecycle.sh`
+
+**Comment count:** 4
+**Inferred severity:** High
+**Core problem:** Lifecycle operations lack enough argument validation, identity resolution rigor, and explicit image pull policy.
+
+### Key Findings
+
+#### 1. Argument validation conflates bad invocation and missing compose files
+
+A missing/unreadable compose file, or a directory passed by mistake, produces the same `exit 2` and full usage banner as a typo in the command name.
+
+**Impact:**
+
+- Callers/CI cannot distinguish:
+  - bad command usage
+  - missing file
+  - unreadable file
+  - wrong argument type
+- User experience and automation diagnostics are degraded.
+
+**Suggested fix:**
+
+- Separate validation:
+  - unknown command → usage error
+  - missing compose file → file error
+  - unreadable compose file → file error
+  - directory passed as file → type error
+- Use distinct exit codes or structured error messages.
+- Send usage to stderr and avoid printing full usage for file errors unless requested.
+
+---
+
+#### 2. Compose identity metadata is scraped or constructed rather than resolved/validated
+
+Project name, image, and volume identity are assembled or scraped instead of being resolved through a validated source of truth.
+
+This can:
+
+- select wrong values
+- skip safety checks
+- trigger `pipefail`/`SIGPIPE` problems
+- cause destructive operations to target the wrong project/volume
+
+**Impact:**
+
+- Wrong-volume deletion risk.
+- Ambiguous project naming.
+- Fragile pipeline behavior.
+- Safety checks can be bypassed by malformed metadata.
+
+**Suggested fix:**
+
+- Resolve metadata from a single authoritative source.
+- Validate every extracted identity value:
+  - exactly one line
+  - non-empty
+  - allowed character set
+  - expected length
+- Fail loudly if identity cannot be determined.
+- Avoid shell scraping when structured output or shared helpers can be used.
+
+---
+
+#### 3. `docker compose ps -q` is treated as both “running” and “existing”
+
+The helper uses compose `ps -q` output as a general container identity query and does not properly distinguish running from stopped/existing containers. It also re-invokes the query multiple times.
+
+**Impact:**
+
+- TOCTOU: state can change between checks.
+- Liveness/existence checks may be wrong.
+- Recreate, clear-caches, and stop messaging can misbehave for stopped containers.
+
+**Suggested fix:**
+
+- Use distinct queries:
+  - existing/created containers
+  - stopped containers
+  - running containers
+- Cache state once when appropriate.
+- Document whether behavior targets running containers, existing project resources, or all compose services.
+
+---
+
+#### 4. Startup/recreate may pull images despite claims of “no downloads”
+
+`docker compose up -d` can pull a missing image by default. The generated compose file emitted by `workspace-compose.sh` does not set `pull_policy`, so `start`/`recreate` may download an arbitrary tag from a registry.
+
+This contradicts the header claim that startup never downloads and undermines image validation.
+
+**Impact:**
+
+- Unexpected network downloads.
+- Arbitrary or mutable tag resolution.
+- Security and reproducibility regression.
+- “Validated image” claims may be false in practice.
+
+**Suggested fix:**
+
+- Add `pull_policy: never` to generated services, or equivalent policy.
+- Validate image presence explicitly before start/recreate.
+- If pulling is ever allowed, make it opt-in and pinned by digest.
+
+---
+
+## 6. `identity/workspace-id.sh`
+
+**Comment count:** 10
+**Inferred severity:** High
+**Core problem:** The identity helper is a trust anchor, but it has broad gaps in environment isolation, path validation, parsing strictness, permissions, locale behavior, and argument handling.
+
+### Key Findings
+
+#### 1. Git commands inherit ambient environment and configuration
+
+The script can inherit variables such as:
+
+- `GIT_DIR`
+- `GIT_WORK_TREE`
+- `GIT_COMMON_DIR`
+- related Git config and environment settings
+
+This can redirect identity and compose path resolution away from the intended checkout.
+
+**Impact:**
+
+- Identity poisoning.
+- Wrong path resolution.
+- Mounts or state directories pointing to unintended locations.
+- Security and correctness risk.
+
+**Suggested fix:**
+
+- Explicitly unset or override Git environment variables.
+- Use `env -i` where appropriate, then selectively set needed vars.
+- Resolve and operate on canonical paths before identity decisions.
+
+---
+
+#### 2. Resolved paths are not consistently validated
+
+Paths such as:
+
+- checkout toplevel
+- canonical path
+- Git common dir
+- state root
+- state dir
+
+are not consistently validated as non-empty and absolute.
+
+`cd` failures, relative Git output, relative or unset state roots, and empty values can poison identity or bind mounts.
+
+**Impact:**
+
+- Wrong identity.
+- Broken mount paths.
+- Relative path expansion surprises.
+- Potential escape from intended state root.
+
+**Suggested fix:**
+
+- Add validation helper requiring:
+  - non-empty
+  - absolute path
+  - canonical path exists where expected
+- Reject relative paths or normalize them to absolute before use.
+- Ensure state roots are explicitly configured and validated.
+
+---
+
+#### 3. Hash tool fallback is missing a clean failure path
+
+The script tries multiple hash tools, but if none exists in a busybox/slim image, the `else` branch runs a missing command.
+
+With `set -e -o pipefail`, the assignment can abort the script with exit 127 and an unrelated “command not found” message, with no `workspace-id:` diagnostic.
+
+**Impact:**
+
+- Confusing failure mode.
+- Missing dependency reported as internal abort.
+- CI and containers without standard coreutils may fail unexpectedly.
+
+**Suggested fix:**
+
+- Check availability of at least one supported hashing tool.
+- Emit a clear error such as:
+  `workspace-id: no supported sha256 tool found`
+- Consider a pure fallback only if carefully implemented and tested.
+
+---
+
+#### 4. Empty `--state-dir` silently skips record writing/verification
+
+`--state-dir ""` passes an initial count check and is stored as empty. Later `[ -n "$state_dir" ]` skips both record writing and record verification.
+
+If a caller passes an empty value due to an unset variable, such as an empty `HESTIA_STATE_ROOT`, the script can falsely succeed.
+
+**Impact:**
+
+- Silent loss of state persistence.
+- Missing identity verification.
+- Caller mistakes become invisible.
+
+**Suggested fix:**
+
+- Reject empty `--state-dir` explicitly.
+- Validate state dir is non-empty before proceeding.
+- Consider requiring `--state-dir` to be canonical and absolute.
+
+---
+
+#### 5. Temporary files use predictable names and lack cleanup on failure
+
+Temp files are created with predictable names and may not be cleaned up if the script fails.
+
+**Impact:**
+
+- Collision risk.
+- Symlink risk.
+- Stale files from prior runs.
+- Possible security concerns if attacker can pre-create targets.
+
+**Suggested fix:**
+
+- Use `mktemp` in the target directory or a controlled temp directory.
+- Install cleanup traps for temporary files.
+- Remove temp files on error.
+- Avoid predictable temp names.
+
+---
+
+#### 6. `identity.record` is a trust anchor but has weak permissions/integrity
+
+The identity record is created using default umask, often resulting in world-readable files and possibly world-readable or user-writable directories. It is plain text with no integrity protection.
+
+An attacker or unrelated process able to write into the state directory could plant a record whose `canonical:` matches the victim checkout.
+
+**Impact:**
+
+- State reuse attack.
+- Identity spoofing.
+- Cross-user or local-process trust issue.
+- Potential mount/volume association with attacker-controlled record.
+
+**Suggested fix:**
+
+- Set a restrictive umask for identity operations.
+- Create state dirs and records with `0700`/`0600` where appropriate.
+- Verify ownership and mode before trusting the record.
+- Reject world-writable state directories.
+- Consider an integrity mechanism beyond plain text, at minimum checksum plus ownership validation.
+
+---
+
+#### 7. Record parsing is too loose for a safety check
+
+Parsing uses `sed -n 's/^...: //p'`, which emits every matching line. A duplicated key can produce a value containing embedded newlines. The equality test then fails with confusing `refusing to reuse` instead of `malformed record`.
+
+**Impact:**
+
+- Malformed records treated as legitimate identity mismatches.
+- Diagnostics mislead users.
+- Ambiguous duplicate keys are not rejected.
+
+**Suggested fix:**
+
+- Implement strict record parsing:
+  - known keys only
+  - unique keys required
+  - exactly one value per key
+  - reject embedded newlines in field values
+- Provide distinct errors:
+  - malformed record
+  - missing key
+  - duplicate key
+  - identity mismatch
+
+---
+
+#### 8. Submodule labels may collide with the documented parent identity model
+
+The comment and README describe the parent as the main checkout. But for submodules, Git may report `.../.git/modules/<name>`, making the parent directory `modules`. Every submodule of a superproject can receive the same label prefix, e.g. `hestia-modules-...`.
+
+**Impact:**
+
+- Incorrect labels.
+- Potential collisions.
+- Documentation and behavior mismatch.
+- Wrong identity for submodule workspaces.
+
+**Suggested fix:**
+
+- Handle submodule layout explicitly.
+- Use `git rev-parse --show-superproject-working-tree` or equivalent to identify the superproject.
+- Include submodule path or unique identifier in the label.
+- Add tests for superproject/submodule identity.
+
+---
+
+#### 9. Sanitization and length bounds are locale-dependent
+
+The sanitizer uses `tr`, `sed`, and `cut` in ways sensitive to locale and multibyte behavior. Labels are embedded into Docker Compose project names.
+
+Non-ASCII or invalid multibyte bytes can produce inconsistent project names or bind paths, depending on locale.
+
+**Impact:**
+
+- Same path can produce different identities in different environments.
+- Project names may become invalid or unstable.
+- Mount paths and state dirs can diverge across hosts.
+- Security boundaries may be bypassed via unexpected normalization.
+
+**Suggested fix:**
+
+- Force deterministic behavior, e.g. `LC_ALL=C`.
+- Use byte-safe normalization.
+- Prefer hash-based project names for arbitrary paths.
+- Validate final project name against a strict safe pattern.
+
+---
+
+#### 10. Argument parsing lacks `--` and rejects/accepts paths inconsistently
+
+There is no `--` terminator, and option/positional order is fixed. Problems include:
+
+- `workspace-id.sh /path --state-dir d` may be rejected as usage error.
+- checkout paths beginning with `-` cannot be expressed.
+- `--state-dir -x` may silently treat `-x` as the directory.
+
+**Impact:**
+
+- Usability bugs.
+- Ambiguous command behavior.
+- Unexpected state directories.
+- Path traversal/leading-dash confusion.
+
+**Suggested fix:**
+
+- Use proper option parsing, e.g. `getopt` or a carefully implemented loop.
+- Support `--` terminator.
+- Validate state dirs and paths after parsing.
+- Reject option-looking positional paths unless explicitly separated.
+
+---
+
+## 7. `workspace/workspace-compose.sh`
+
+**Comment count:** 1
+**Inferred severity:** High
+**Core problem:** Generated YAML can be broken or injected through unquoted scalars derived from identity/user-controlled values.
+
+### Key Findings
+
+#### 1. Generated `name` and `image` scalars are not safely quoted/validated
+
+The generated compose file interpolates values such as identity-derived names, `--image`, and potentially `$canonical` into YAML scalars without sufficient quoting or validation.
+
+These values may contain:
+
+- YAML special characters
+- newlines
+- quotes
+- comment indicators
+- control characters
+
+**Impact:**
+
+- Generated compose file can be syntactically broken.
+- Values may inject extra YAML nodes or comments.
+- Security risk if caller-controlled input reaches generated config.
+- Subtle startup failures with misleading YAML errors.
+
+**Suggested fix:**
+
+- Validate allowed character sets before generation.
+- Reject newlines/control characters.
+- Quote all scalar values in generated YAML.
+- Prefer using a real YAML emitter or a well-tested quoting function.
+- Add tests for YAML injection:
+  - newline in image
+  - quote in name
+  - colon/`#` in path
+  - non-ASCII project name
+  - very long label
+
+---
+
+## 8. `.gitignore`
+
+**Comment count:** 5
+**Inferred severity:** Medium to High
+**Core problem:** Ignore rules do not fully match the stated policy for secrets, local state, logs, and editor/tooling noise.
+
+### Key Findings
+
+#### 1. `.env.*` rules over-ignore and under-exclude examples
+
+The current pattern uses broad `.env.*` / `**/.env.*` ignores with only an exact exception for `.env.example`.
+
+This fails to re-include conventional examples such as:
+
+- `.env.sample`
+- `.env.template`
+- `.env.dist`
+- `.env.production.example`
+- `.env.example.local`
+- similar nested variants
+
+**Impact:**
+
+- Useful non-secret examples are accidentally ignored.
+- Documentation/example files may not be committed.
+- Developers may force-add secrets thinking they are examples.
+
+**Suggested fix:**
+
+- Refine exception patterns:
+  - `!*.env.example`
+  - `!*.env.example.*`
+  - `!*.env.sample`
+  - `!*.env.template`
+  - `!*.env.dist`
+- Prefer allowing only clearly safe example basenames.
+- Add tests or CI checks that example env files are visible.
+
+---
+
+#### 2. Key/secret rules are both under-covered and over-covered
+
+Current `*.key` / `*.pem` rules miss common credential-shaped files and may over-exclude legitimate fixture files if added later.
+
+Missing examples include:
+
+- extensionless SSH/private keys: `id_rsa`, `id_ed25519`, `id_ecdsa`, etc.
+- other credential-shaped files or formats
+
+At the same time, if fixtures contain test keys/certs, broad ignores may accidentally remove needed files.
+
+**Impact:**
+
+- Secrets can be committed.
+- Test fixtures may be excluded unintentionally.
+- Build or test behavior can become inconsistent.
+
+**Suggested fix:**
+
+- Add explicit patterns for common key file names.
+- Scope exceptions intentionally:
+  - `!fixtures/...` only for known safe test artifacts.
+- Consider path-specific rules rather than global extension rules where possible.
+
+---
+
+#### 3. Hydrated-state policy is expressed as narrow allow-list
+
+The current rule ignores only two hard-coded subdirectories, while the comment states an absolute policy: local hydrated state is never committed.
+
+This misses future state directories such as:
+
+- `.epiq/state/`
+- `.epiq/cache/`
+- `.epiq/worktrees/`
+- `.epiq/*.sqlite`
+- other hydrated workspace state under `.epiq/` or similar roots
+
+**Impact:**
+
+- Local state leaks into commits.
+- Policy is not enforced.
+- Future state locations become accidental noise.
+
+**Suggested fix:**
+
+- Ignore entire top-level state roots if they are always local:
+  - `.epiq/`
+  - `**/.epiq/` where appropriate
+- If exceptions are needed for docs/fixtures, use narrow negations.
+- Add CI check that no local state path is committed.
+
+---
+
+#### 4. `*.log` rule is too loose and still incomplete
+
+`*.log` is broad but misses common log-like outputs in this workflow:
+
+- extensionless sinks such as `logs/stdout`
+- rotated/compressed logs:
+  - `*.log.1`
+  - `*.log.gz`
+- `nohup.out`
+- `*.out`
+- `*.err`
+
+**Impact:**
+
+- Log noise can still be committed.
+- Build/test output may pollute repo.
+- Some ignored paths are too broad, others too narrow.
+
+**Suggested fix:**
+
+- Add explicit patterns:
+  - `*.log`
+  - `*.log.*`
+  - `*.out`
+  - `*.err`
+  - `nohup.out`
+- For known extensionless logs, ignore exact files or directories if safe.
+- Add exceptions only for fixture logs intentionally checked in.
+
+---
+
+#### 5. `.zcode/` may be a stale or incorrect rule
+
+Nothing in the repo, docs, or tooling references `.zcode/`. It may be a typo for another editor/agent state directory.
+
+**Impact:**
+
+- If typo: the real noise directory remains unignored.
+- If stale: dead rule remains.
+- Policy intent unclear.
+
+**Suggested fix:**
+
+- Verify whether `.zcode/` is still needed.
+- If typo, replace with correct directory name.
+- If unused, remove the rule.
+
+---
+
+## 9. `.dockerignore`
+
+**Comment count:** 2
+**Inferred severity:** Medium to High
+**Core problem:** `.dockerignore` diverges from `.gitignore` and may exclude files required by fixture builds.
+
+### Key Findings
+
+#### 1. Build context includes unignored local state
+
+The ignore set diverges from `.gitignore`. Files/directories ignored by Git may still be included in the Docker build context, such as:
+
+- `.zcode/`
+- `.epiq/`
+- `events/`
+- `log/`
+- other local hydrated state
+
+**Impact:**
+
+- Larger build contexts.
+- Secret/state leakage into build context.
+- Slower builds and less reproducible behavior.
+- Possible exposure of local tooling state to image layers.
+
+**Suggested fix:**
+
+- Align `.dockerignore` with `.gitignore` where safe.
+- Explicitly ignore:
+  - `.git`
+  - local state roots
+  - editor/tooling noise
+  - logs/artifacts
+- Consider generating `.dockerignore` from `.gitignore` or a shared list.
+
+---
+
+#### 2. Broad `**/*.key` and `**/*.pem` rules can affect fixtures
+
+The patterns `**/*.log`, `**/*.key`, and `**/*.pem` are unanchored and therefore apply inside `fixtures/`, which the Dockerfile explicitly copies.
+
+Nothing matches today, but this creates a latent silent failure: if fixture tests later include key/log-like test files, they may be removed from the build context.
+
+**Impact:**
+
+- Broken fixture tests with confusing “missing file” errors.
+- Inconsistent between Git-visible fixture content and Docker build context.
+- Silent behavior change when fixture files are added.
+
+**Suggested fix:**
+
+- Scope ignore rules more precisely.
+- Add exceptions for fixture test files if needed:
+  - `!fixtures/**/*.key`
+  - `!fixtures/**/*.pem`
+- Prefer ignoring real secrets by path pattern rather than all extension-based files globally.
+- Add a build-context smoke test that fixture files required by Dockerfile survive.
+
+---
+
+## 10. `Dockerfile`
+
+**Comment count:** 7
+**Inferred severity:** High
+**Core problem:** The Dockerfile has significant issues around architecture pinning, supply-chain integrity, mutable toolchain trust, root-owned state, runtime behavior, and cache hygiene.
+
+### Key Findings
+
+#### 1. Base digest is pinned, but architecture is not; mise artifact assumes `linux-arm64`
+
+The base image is pinned by OCI index digest, but `--platform` is not pinned. The mise artifact path is hard-coded to `linux-arm64`.
+
+On an amd64 builder, BuildKit may resolve the index to the host platform. That can yield an amd64 rootfs with an arm64 binary path or binary.
+
+**Impact:**
+
+- Wrong architecture binary.
+- Build succeeds only by accident on ARM hosts.
+- CI on AMD64 may break unexpectedly.
+- Digest pinning gives false confidence without platform pinning.
+
+**Suggested fix:**
+
+- Pin `--platform` explicitly if target architecture is fixed.
+- Or support multiple architectures with per-platform URLs/checksums.
+- Fail early on unsupported platform.
+- Verify `uname -m` / target architecture before downloading artifact.
+
+---
+
+#### 2. Pinning inputs are overridable and can bypass integrity
+
+`MISE_VERSION` and `MISE_SHA256` are build-time ARGs. A caller can override them with a malicious or unintended version and provide a self-consistent digest for that version.
+
+Because the checksum is only compared against the URL supplied via build args, the intended integrity story is bypassed.
+
+**Impact:**
+
+- Supply-chain integrity is weaker than intended.
+- Builds can silently use arbitrary mise tarballs.
+- Pinned digest/version can be overridden without warning.
+
+**Suggested fix:**
+
+- Make pinned version/checksum constants in the Dockerfile, not overridable ARGs.
+- If overrides are necessary, require an explicit opt-in and fail by default.
+- Verify checksums against an external trusted checksum list, not only the provided URL.
+- Use pinned digests for mise releases or an internal mirror.
+
+---
+
+#### 3. `MISE_DATA_DIR` and global config are dev-writable, not immutable
+
+Mise state is placed under `/home/dev`, including:
+
+- shims
+- installs
+- config
+- trust state
+
+The global `mise.toml` is also copied into a dev-controllable location.
+
+**Impact:**
+
+- Container compromise can mutate toolchain configuration.
+- Trust boundaries are weaker than they appear.
+- Runtime workspaces or code with dev-user access may alter toolchain behavior.
+
+**Suggested fix:**
+
+- Store immutable toolchain config in root-owned locations.
+- Use `--trust` or pre-trust carefully.
+- Verify global config integrity or mount it read-only.
+- Consider read-only `/home/dev/.config/mise` or separate immutable tool layer.
+
+---
+
+#### 4. `MISE_DATA_DIR` is declared after a run that uses default root locations
+
+`ENV MISE_DATA_DIR` is declared after a `RUN` step that invokes `mise --version`. That step runs as root using default data/config locations and creates dead root-owned mise state:
+
+- `/root/.config/mise`
+- `/root/.local/share/mise`
+
+This state is not used by the `dev` runtime user.
+
+**Impact:**
+
+- Confusing extra layer contents.
+- Dead config in image.
+- Potential user confusion if running as root.
+- Violates expectation that only `/home/dev` mise state is used.
+
+**Suggested fix:**
+
+- Declare `ENV MISE_DATA_DIR` before the version-check `RUN`.
+- Or run version check with the target user/env.
+- Clean any accidental root mise state if created.
+
+---
+
+#### 5. Ownership

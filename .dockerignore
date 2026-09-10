@@ -1,6 +1,10 @@
 # Git metadata, including linked-worktree .git files
 **/.git
 
+# Local hydrated board state and agent worktrees never enter build contexts
+.epiq/
+.zcode/
+
 # Host and editor noise
 **/.DS_Store
 **/Thumbs.db

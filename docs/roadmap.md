@@ -2,7 +2,7 @@
 
 [Project overview](../README.md) · [Architecture decisions](architecture.md) · [Milestone 1 spec](milestone-1.md)
 
-The current state is documentation only: architecture defaults and the first milestone are specified, with implementation and all runtime checks pending. These milestones describe acceptance order, not delivered features or deadlines. Record actual platforms, versions, actions, and results. Lifecycle names do not imply an implemented Hestia CLI.
+The current state is a verified foundation: architecture defaults and the Milestone 1 specification stand, and the Milestone 1A fixture, identity, image, scoped mounts, lifecycle and cache-clearing slices are implemented and verified on macOS arm64 (see the [evidence log](evidence.md) and the [review disposition](reviews/2026-09-09-ocr-prs-1-8-disposition.md)). Agent integration, the Argus pilot, concurrency and later milestones remain. These milestones describe acceptance order, not delivered features or deadlines. Record actual platforms, versions, actions, and results. Lifecycle names do not imply an implemented Hestia CLI.
 
 ## 1. Foundation and Argus pilot
 
