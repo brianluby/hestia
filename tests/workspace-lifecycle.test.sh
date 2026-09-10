@@ -155,6 +155,26 @@ docker compose -f "$root/ws.yaml" exec -T workspace \
 grep -q "ok  .*example.com/hestia-synthetic/greet" "$root/rebuild.log" &&
 	ok "build/tests pass again after recreation" || bad "post-recreation build/test failed"
 
+echo "== ambient COMPOSE_PROJECT_NAME override =="
+foreign="review-foreign-$$"
+printf 'name: %s\nservices:\n  workspace:\n    image: busybox\n    command: ["sleep", "300"]\n' "$foreign" >"$root/foreign.yaml"
+docker compose -f "$root/foreign.yaml" up -d workspace >/dev/null 2>&1
+foreign_cid="$(docker compose -f "$root/foreign.yaml" ps -aq workspace)"
+[ -n "$foreign_cid" ] || bad "foreign project did not start"
+if COMPOSE_PROJECT_NAME="$foreign" "$life" remove-runtime "$root/ws.yaml" >/dev/null 2>&1; then
+	foreign_now="$(docker compose -f "$root/foreign.yaml" ps -aq workspace)"
+	[ "$foreign_now" = "$foreign_cid" ] &&
+		ok "ambient project override cannot redirect lifecycle operations" ||
+		bad "foreign project container was removed via override"
+else
+	# nonzero is acceptable only if the foreign project is untouched
+	foreign_now="$(docker compose -f "$root/foreign.yaml" ps -aq workspace)"
+	[ "$foreign_now" = "$foreign_cid" ] &&
+		ok "ambient override rejected, foreign project untouched" ||
+		bad "foreign project container was removed via override"
+fi
+docker compose -f "$root/foreign.yaml" down --remove-orphans >/dev/null 2>&1
+
 echo "== guards =="
 printf 'name: not-hestia\nservices:\n  workspace:\n    image: busybox\n' >"$root/foreign.yaml"
 if "$life" remove-runtime "$root/foreign.yaml" >/dev/null 2>&1; then

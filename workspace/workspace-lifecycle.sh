@@ -69,7 +69,10 @@ printf '%s' "$project" | grep -Eq '^hestia-[a-z0-9][a-z0-9-]{0,23}-[0-9a-f]{12}$
 	fail "refusing to operate on non-Hestia Compose project name '$project'"
 
 dc() {
-	docker compose -f "$file" "$@"
+	# -p pins the project validated above: an ambient COMPOSE_PROJECT_NAME or
+	# a Compose-loaded .env would otherwise redirect the operation to a
+	# different project while the guard validated this one.
+	docker compose -p "$project" -f "$file" "$@"
 }
 
 # Existing container for the workspace service, including stopped ones.
