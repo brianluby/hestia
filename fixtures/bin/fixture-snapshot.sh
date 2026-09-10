@@ -21,6 +21,11 @@
 # compares clean and any durable difference shows up in the diff.
 set -euo pipefail
 
+die() {
+	echo "fixture-snapshot: error: $*" >&2
+	exit 1
+}
+
 usage() {
 	echo "usage: $0 capture <git-dir> <out-dir>" >&2
 	echo "       $0 compare <git-dir> <snapshot-dir>" >&2
@@ -48,11 +53,32 @@ capture() {
 	git -C "$repo" status --porcelain=v2 --branch >"$out/status.porcelain-v2"
 	git -C "$repo" status --short >"$out/status.short"
 	git -C "$repo" worktree list --porcelain >"$out/worktrees.porcelain"
+	# Raw working-tree bytes: NUL-delimited enumeration survives names git
+	# would quote/escape, --no-filters hashes the bytes on disk rather than
+	# clean-filtered content, and every failure propagates instead of being
+	# masked inside a printf (review finding 2). Symlinks hash their link
+	# target; a tracked-but-deleted path is recorded as missing rather than
+	# silently skipped.
 	: >"$out/files.worktree-sha"
-	local f
-	while IFS= read -r f; do
-		printf '%s\t%s\n' "$(git -C "$repo" hash-object -- "$f")" "$f" >>"$out/files.worktree-sha"
-	done < <(git -C "$repo" ls-files --cached --others --exclude-standard)
+	tmp_base="${TMPDIR:-/tmp}"
+	list_file="$(mktemp "${tmp_base%/}/hestia-snapshot-list.XXXXXX")"
+	trap 'rm -f "$list_file"' RETURN
+	git -C "$repo" ls-files -z --cached --others --exclude-standard >"$list_file" ||
+		die "git ls-files failed in $repo"
+	local f h tgt
+	while IFS= read -r -d '' f; do
+		if [ -L "$repo/$f" ]; then
+			tgt="$(readlink "$repo/$f")" || die "readlink failed for $f"
+			h="$(printf '%s' "$tgt" | git -C "$repo" hash-object --stdin --no-filters)" ||
+				die "hash-object failed for symlink $f"
+		elif [ -e "$repo/$f" ]; then
+			h="$(git -C "$repo" hash-object --no-filters -- "$f")" ||
+				die "hash-object failed for $f"
+		else
+			h="missing"
+		fi
+		printf '%s\t%s\n' "$h" "$f" >>"$out/files.worktree-sha"
+	done <"$list_file"
 }
 
 case "$cmd" in
