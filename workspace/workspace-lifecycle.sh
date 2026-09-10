@@ -68,6 +68,11 @@ project="$(sed -n 's/^name: //p' "$file" | head -1)"
 printf '%s' "$project" | grep -Eq '^hestia-[a-z0-9][a-z0-9-]{0,23}-[0-9a-f]{12}$' ||
 	fail "refusing to operate on non-Hestia Compose project name '$project'"
 
+# Distinguish an unreachable daemon from an absent container up front: query
+# failures must never be reported as a successful no-op.
+docker info >/dev/null 2>&1 ||
+	fail "docker daemon unreachable (DOCKER_HOST='${DOCKER_HOST:-default}') — cannot query workspace state"
+
 dc() {
 	# -p pins the project validated above: an ambient COMPOSE_PROJECT_NAME or
 	# a Compose-loaded .env would otherwise redirect the operation to a
@@ -75,15 +80,21 @@ dc() {
 	docker compose -p "$project" -f "$file" "$@"
 }
 
-# Existing container for the workspace service, including stopped ones.
+# Existing container for the workspace service, including stopped ones. A
+# failed query is an error, not an empty result.
 existing_cid() {
-	dc ps -aq workspace 2>/dev/null | head -1
+	local out
+	out="$(dc ps -aq workspace 2>&1)" || fail "docker compose query failed: $out"
+	printf '%s\n' "$out" | head -1
 }
 
 is_running() {
-	local id
+	local id state
 	id="$(existing_cid)"
-	[ -n "$id" ] && [ "$(docker inspect -f '{{.State.Running}}' "$id" 2>/dev/null)" = "true" ]
+	[ -n "$id" ] || return 1
+	state="$(docker inspect -f '{{.State.Running}}' "$id" 2>&1)" ||
+		fail "docker inspect failed for $id: $state"
+	[ "$state" = "true" ]
 }
 
 wait_running() {
@@ -128,7 +139,8 @@ stop)
 	if is_running; then
 		dc stop workspace
 	fi
-	echo "workspace stopped; container, volumes and state retained: $(existing_cid)"
+	stopped_id="$(existing_cid)"
+	echo "workspace stopped; container, volumes and state retained: $stopped_id"
 	;;
 remove-runtime)
 	dc rm -sf workspace >/dev/null
