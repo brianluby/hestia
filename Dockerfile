@@ -11,11 +11,14 @@
 #   mise  v2026.9.4 linux-arm64 tarball; sha256 below is the GitHub release-API
 #         asset digest (no standalone checksum assets are published)
 #
-# Targets linux/arm64 (the available Apple Silicon host); no multi-arch support
-# is claimed. By construction the images contain no GUI, no agent supervisor,
-# no host sockets and no credentials. Startup installs nothing; toolchains are
-# declared image layers built explicitly.
-FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS base
+# Targets linux/arm64 (the available Apple Silicon host) and enforces the
+# platform on the base pull, so a non-ARM builder fails clearly instead of
+# resolving the multi-arch index to a foreign rootfs around the arm64 mise
+# tarball; no multi-arch support is claimed. By construction the images
+# contain no GUI, no agent supervisor, no host sockets and no credentials.
+# Startup installs nothing; toolchains are declared image layers built
+# explicitly.
+FROM --platform=linux/arm64 debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS base
 
 ARG MISE_VERSION=v2026.9.4
 ARG MISE_SHA256=18303fdb59095acf0c50b0d23819b87182516988f9eb2ec016b52f8814916904
@@ -31,11 +34,16 @@ RUN apt-get update \
 
 ADD https://github.com/jdx/mise/releases/download/${MISE_VERSION}/mise-${MISE_VERSION}-linux-arm64.tar.gz /tmp/mise.tar.gz
 
+# The version check asserts the installed binary matches the pinned release
+# (catching a tag/asset mismatch the API digest alone would not) and removes
+# any state mise created under /root while running as root in this layer;
+# MISE_DATA_DIR below intentionally applies only to later, dev-user layers.
 RUN echo "${MISE_SHA256}  /tmp/mise.tar.gz" | sha256sum --strict --check - \
  && tar -xzf /tmp/mise.tar.gz -C /tmp \
  && install -m 0755 /tmp/mise/bin/mise /usr/local/bin/mise \
  && rm -rf /tmp/mise /tmp/mise.tar.gz \
- && mise --version
+ && mise --version | grep -qF "${MISE_VERSION#v} " \
+ && rm -rf /root/.config/mise /root/.local/share/mise
 
 ENV MISE_DATA_DIR=/home/dev/.local/share/mise \
     PATH=/home/dev/.local/share/mise/shims:$PATH
@@ -53,11 +61,17 @@ CMD ["/bin/bash"]
 # mise 2026.9.4: an untrusted mounted mise.toml's task ran unchallenged), so
 # workspaces default to paranoid mode, where every non-global config needs an
 # explicit, content-bound `mise trust` before its tools/tasks/hooks apply.
-# The fixture build/test runs here as the toolchain check; its source is
-# removed in the same layer and never ships in the image.
+# The fixture build/test runs here as the toolchain check; its source AND its
+# build/test caches are removed in the same layer, so neither ships in the
+# image (the check's GOCACHE/GOMODCACHE point at a throwaway directory rather
+# than the dev home the runtime uses). GOTOOLCHAIN=local is the explicit
+# no-download policy for Go: a mounted workspace whose go.mod declares a newer
+# go/toolchain directive fails clearly instead of silently downloading and
+# executing a different toolchain at runtime.
 FROM base AS fixture-tools
 
-ENV MISE_PARANOID=1
+ENV MISE_PARANOID=1 \
+    GOTOOLCHAIN=local
 
 # Workspace cache root (KSCDG1J): the disposable Linux build/dependency cache
 # volume mounts here. Creating it dev-owned in the image means a fresh volume
@@ -77,7 +91,9 @@ COPY --chown=dev:dev fixtures/synthetic/greet /tmp/fixture-src/greet
 RUN mise install --yes \
  && mise exec -- go version \
  && cd /tmp/fixture-src \
- && mise exec -- go build ./... \
- && mise exec -- go test ./... \
+ && env GOCACHE=/tmp/hestia-build-cache/build GOMODCACHE=/tmp/hestia-build-cache/mod \
+    mise exec -- go build ./... \
+ && env GOCACHE=/tmp/hestia-build-cache/build GOMODCACHE=/tmp/hestia-build-cache/mod \
+    mise exec -- go test ./... \
  && cd / \
- && rm -rf /tmp/fixture-src
+ && rm -rf /tmp/fixture-src /tmp/hestia-build-cache
