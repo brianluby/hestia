@@ -155,6 +155,13 @@ docker compose -f "$root/ws.yaml" exec -T workspace \
 grep -q "ok  .*example.com/hestia-synthetic/greet" "$root/rebuild.log" &&
 	ok "build/tests pass again after recreation" || bad "post-recreation build/test failed"
 
+echo "== unreachable daemon =="
+if DOCKER_HOST="unix:///private/tmp/hestia-no-daemon-$$.sock" "$life" stop "$root/ws.yaml" >/dev/null 2>&1; then
+	bad "stop must fail when the docker daemon is unreachable"
+else
+	ok "stop fails when the docker daemon is unreachable"
+fi
+
 echo "== ambient COMPOSE_PROJECT_NAME override =="
 foreign="review-foreign-$$"
 printf 'name: %s\nservices:\n  workspace:\n    image: busybox\n    command: ["sleep", "300"]\n' "$foreign" >"$root/foreign.yaml"
