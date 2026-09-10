@@ -31,7 +31,7 @@ attachable; `compose run` overrides that for one-off commands.
 | `recreate <file>` | Stop (finish active work first), remove runtime, start again — fails if the replacement container ID is not different |
 | `clear-caches <file>` | Remove only this workspace's `linux-caches` volume (name and declaration verified) and restart with a fresh one; durable state and source untouched |
 
-The helper never runs `down -v`, prunes, deletes volumes or touches source.
+The helper never runs `down -v`, prunes, or touches source, and the only volume it ever removes is the workspace's own `linux-caches` (via `clear-caches`, identity-verified).
 `remove-runtime`/`recreate` refuse Compose projects whose name is not a
 Hestia workspace id, so they cannot be pointed at unrelated projects.
 
