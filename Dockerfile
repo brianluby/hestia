@@ -9,7 +9,13 @@
 #         sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171
 #         (linux/arm64 manifest sha256:6bd27d44e6c32a66bbd72d7cb2b76a8ae3497ec2e5274a81abd1b37f6013fa1f)
 #   mise  v2026.9.4 linux-arm64 tarball; sha256 below is the GitHub release-API
-#         asset digest (no standalone checksum assets are published)
+#         asset digest (no standalone checksum assets are published), AND the
+#         tarball is verified against its SLSA v1 provenance (A5H3NY9 decision):
+#         the provenance is fetched at build time from GitHub's public
+#         attestations API keyed by that digest and verified with cosign,
+#         pinning the signing identity to jdx/mise workflows via the GitHub
+#         Actions OIDC issuer. cosign itself is pinned by its release-API
+#         digest — the documented root anchor of this chain.
 #
 # Targets linux/arm64 (the available Apple Silicon host) and enforces the
 # platform on the base pull, so a non-ARM builder fails clearly instead of
@@ -22,26 +28,51 @@ FROM --platform=linux/arm64 debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6e
 
 ARG MISE_VERSION=v2026.9.4
 ARG MISE_SHA256=18303fdb59095acf0c50b0d23819b87182516988f9eb2ec016b52f8814916904
+ARG COSIGN_VERSION=v3.1.3
+ARG COSIGN_SHA256=c5d324e091826b0d7a78eb16fef316450b4eb9aaec045611c08ba06f5e73220a
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       ca-certificates \
       curl \
       git \
+      jq \
       xz-utils \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --create-home --uid 1000 --shell /bin/bash dev
 
-ADD https://github.com/jdx/mise/releases/download/${MISE_VERSION}/mise-${MISE_VERSION}-linux-arm64.tar.gz /tmp/mise.tar.gz
 
-# The version check asserts the installed binary matches the pinned release
-# (catching a tag/asset mismatch the API digest alone would not) and removes
-# any state mise created under /root while running as root in this layer;
-# MISE_DATA_DIR below intentionally applies only to later, dev-user layers.
-RUN echo "${MISE_SHA256}  /tmp/mise.tar.gz" | sha256sum --strict --check - \
+# Verification chain (A5H3NY9 decision: SLSA): both binaries are pinned by
+# their release-API digests; the mise tarball must additionally carry a valid
+# SLSA v1 provenance from jdx/mise's release workflow (identity pinned to
+# https://github.com/jdx/mise/.github/workflows/ via the GitHub Actions OIDC
+# issuer), fetched anonymously from GitHub's attestations API keyed by the
+# pinned digest. The provenance binds the artifact to the workflow that built
+# it; the pinned digests bind which artifact and verifier this is. The version
+# check then asserts the installed binary matches the pinned release, and any
+# state mise created under /root in this layer is removed; MISE_DATA_DIR below
+# intentionally applies only to later, dev-user layers.
+RUN curl -sfL -o /tmp/mise.tar.gz \
+      "https://github.com/jdx/mise/releases/download/${MISE_VERSION}/mise-${MISE_VERSION}-linux-arm64.tar.gz" \
+ && curl -sfL -o /tmp/cosign \
+      "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-arm64" \
+ && echo "${MISE_SHA256}  /tmp/mise.tar.gz" | sha256sum --strict --check - \
+ && echo "${COSIGN_SHA256}  /tmp/cosign" | sha256sum --strict --check - \
+ && chmod +x /tmp/cosign \
+ && curl -sfL "https://api.github.com/repos/jdx/mise/attestations/sha256:${MISE_SHA256}" \
+      | jq '.attestations[].bundle | (if type == "string" then fromjson else . end) \
+          | select((.dsseEnvelope.payload | @base64d | fromjson | .predicateType) == "https://slsa.dev/provenance/v1")' \
+          > /tmp/mise-provenance.json \
+ && test -s /tmp/mise-provenance.json \
+ && /tmp/cosign verify-blob-attestation \
+      --bundle /tmp/mise-provenance.json \
+      --type "https://slsa.dev/provenance/v1" \
+      --certificate-identity-regexp '^https://github\.com/jdx/mise/\.github/workflows/' \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+      /tmp/mise.tar.gz \
  && tar -xzf /tmp/mise.tar.gz -C /tmp \
  && install -m 0755 /tmp/mise/bin/mise /usr/local/bin/mise \
- && rm -rf /tmp/mise /tmp/mise.tar.gz \
+ && rm -rf /tmp/mise /tmp/mise.tar.gz /tmp/cosign /tmp/mise-provenance.json \
  && mise --version | grep -qF "${MISE_VERSION#v} " \
  && rm -rf /root/.config/mise /root/.local/share/mise
 

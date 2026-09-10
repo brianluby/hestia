@@ -31,10 +31,17 @@ Host: macOS 25.6.0 arm64, Docker server 29.5.2 (linux/aarch64), docker CLI
 - **mise:** `v2026.9.4` (latest release, published 2026-09-09). The release
   publishes no standalone checksum assets, so the pinned sha256
   `18303fdb59095acf0c50b0d23819b87182516988f9eb2ec016b52f8814916904` is the
-  GitHub release-API asset digest (served over TLS, computed by GitHub). The
-  tarball was downloaded on-host and matched that digest before pinning, and
-  the build re-verifies it with `sha256sum --strict --check`. Stronger SLSA
-  attestation verification exists upstream and remains an open choice.
+  GitHub release-API asset digest (served over TLS, computed by GitHub).
+  Per the A5H3NY9 decision (SLSA), the build additionally verifies the
+  tarball's SLSA v1 provenance: fetched anonymously from GitHub's
+  attestations API keyed by that digest, verified with cosign v3.1.3
+  (pinned by its release-API digest
+  `c5d324e091826b0d7a78eb16fef316450b4eb9aaec045611c08ba06f5e73220a`),
+  with the signing identity pinned to
+  `https://github.com/jdx/mise/.github/workflows/` via the GitHub Actions
+  OIDC issuer. Remaining trust anchor, stated honestly: the cosign and mise
+  digest pins come from the GitHub release API over TLS — GitHub remains the
+  root of this chain.
 - **Build:** cold `--no-cache` build 13 s; cached rebuild 0.6 s. Image
   `sha256:caca07509a9296b332fda830fa5b76966ef7279cbc2a076316ada920130b43b3`,
   `linux/arm64`, 145,774,378 bytes, default user `dev` (uid 1000).
@@ -187,3 +194,36 @@ passed 10/10 on a fresh fixture.
 - **Regeneration:** a second in-container `go build`/`go test` (after one
   deliberate `mise trust`) passed with the caches rebuilt into the fresh
   volume.
+
+## SLSA verification of mise — JBTHN9J, 2026-09-09
+
+Host: macOS 25.6.0 arm64, Docker server 29.5.2. Decision source: A5H3NY9
+(user chose SLSA over API-digest-only).
+
+- **Provenance:** GitHub's attestations API for the pinned tarball digest
+  returns two attestations; the SLSA v1 provenance
+  (`https://slsa.dev/provenance/v1`) lists every release asset including
+  `mise-v2026.9.4-linux-arm64.tar.gz`, with builder
+  `jdx/mise/.github/workflows/release.yml@refs/tags/v2026.9.4` and the
+  release workflow as external parameters.
+- **Verifier:** cosign v3.1.3 —
+  `verify-blob-attestation --bundle <sigstore bundle> --type
+  https://slsa.dev/provenance/v1 --certificate-identity-regexp
+  ^https://github\.com/jdx/mise/\.github/workflows/
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
+  The raw predicate-type URI is required: the `slsaprovenance` shorthand
+  maps to the older v0.2 URI and rejects v1; slsa-verifier v2.7.1 cannot
+  verify this provenance at all (its builder-ID parser rejects tag refs).
+- **Verified behavior:** positive case `Verified OK` (rc 0); a single
+  flipped byte in the tarball → rc 1; a different (legitimately signed)
+  asset from the same release → rc 1; a build with a wrong MISE_SHA256 pin
+  fails. All probes ran anonymously in a clean debian container — no GitHub
+  authentication is needed at build time.
+- **Build:** cold `--no-cache` fixture-tools build 32 s, image
+  `sha256:da4e08c28c50...b46d`, 173,134,062 bytes (down ~40 MB: the mise and
+  cosign downloads moved into the verification RUN, so neither ships as a
+  dead layer). All four suites pass against this image (19/29/18/12).
+- **Trust anchor:** cosign and mise pins derive from the GitHub release API
+  over TLS; the provenance is fetched from GitHub's attestations API at
+  build time. GitHub is the root of the chain — an explicit, documented
+  limitation, not a claim of independence from it.
