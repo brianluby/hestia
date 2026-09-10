@@ -256,3 +256,39 @@ regression-tested:
 Suites after the fixes: fixture-snapshot 7/7, identity 19/19, mounts 31/31,
 lifecycle 23/23, cache-clear 12/12 — 92 checks on macOS 25.6.0 arm64
 (Docker server 29.5.2), image `sha256:da4e08c28c50...b46d` unchanged.
+
+## omp agent layer — XJVWF4K, 2026-09-10 (implementation slice)
+
+Host: macOS 25.6.0 arm64, Docker server 29.5.2. Image target `agent` on
+`fixture-tools`; `tests/workspace-agent.test.sh` passed 16/16, all other
+suites re-run green (snapshot 7, identity 19, mounts 31, lifecycle 23,
+cache-clear 12 — 108 checks total).
+
+- **Install:** omp v18.1.16 via mise (`github:can1357/oh-my-pi`); the
+  installed binary hashes to the pinned release-API digest
+  `d8612389c7af...b9720` and reports `omp/18.1.16`. Image
+  `sha256:ff3e01283e46...f721`, 256,553,123 bytes.
+- **Provider policy:** `agent/omp/config.yml` (everything except bedrock
+  disabled) ships root-owned in the image and is bound read-only over the
+  state mount in generated Compose files — byte-identical to the repo
+  template at runtime and not writable by the dev user (asserted).
+- **Empirical omp layout fixes applied during integration:** `~/.omp` and
+  `~/.omp/agent` must be dev-writable (omp extracts `pi_natives` into
+  `~/.omp/natives` and opens `~/.omp/agent/agent.db` at startup — both
+  initially broke under root-owned dirs, diagnosed via strace).
+- **State scoping:** `~/.omp` binds from `<state-root>/<workspace-id>/omp`;
+  `agent.db`, markers and sessions persist across `recreate` (asserted) and
+  are host-visible; `clear-caches` never touches them; source/Git state
+  compared clean after all probes.
+- **Missing auth (M1-09 slice):** with no AWS credentials, `omp -p hi` exits
+  1 with `No models available. Use /login or set an API key environment
+  variable. Then use /model to select a model.` while `git status` and the
+  shell remain usable in the same container (asserted).
+- **Per-container behaviors observed:** `mise trust` of the mounted repo is
+  required once per container under the paranoid default (re-trust after
+  recreation verified); omp resolves through mise shims, so untrusted local
+  mise config blocks invocation until trusted.
+- **Not yet done (the ticket's remaining leg):** real AWS credential-chain
+  login, an agent-assisted fixture change, and session resume across
+  recreation with a real session — deliberately left for the user-driven
+  interactive step; no credentials exist in any image, Compose output or log.

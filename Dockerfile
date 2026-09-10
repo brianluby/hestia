@@ -2,7 +2,8 @@
 # Canonical Hestia image/build path: one Dockerfile, named stages.
 #   docker build --target base .            minimal OS utilities + mise (61Q7E8F)
 #   docker build --target fixture-tools .   base + fixture mise toolchain (WGHQ2GW)
-# `docker build .` builds the last stage (fixture-tools).
+#   docker build --target agent .           fixture-tools + the omp agent (XJVWF4K)
+# `docker build .` builds the last stage (agent).
 #
 # Pinned inputs (verified 2026-09-09; evidence in docs/evidence.md):
 #   base  debian:bookworm-slim, pinned by OCI index digest
@@ -128,3 +129,36 @@ RUN mise install --yes \
     mise exec -- go test ./... \
  && cd / \
  && rm -rf /tmp/fixture-src /tmp/hestia-build-cache
+
+# XJVWF4K — optional agent layer: omp (oh-my-pi, TG7VZBV decision; AWS Bedrock
+# only this phase). Installed through mise like every other declared tool and
+# verified against the pinned release-API digest of omp-linux-arm64; the
+# binary must report the pinned version. The provider restriction
+# (agent/omp/config.yml: everything except bedrock disabled) ships root-owned
+# and read-only — workspace policy, not runtime-user preference. No
+# credentials enter the image: bedrock authenticates through the standard AWS
+# credential chain supplied at runtime. omp's durable state (~/.omp: sessions,
+# resumable via --resume, project-scoped memory) is bind-mounted from the
+# workspace's state directory by the generated Compose file, never baked.
+FROM fixture-tools AS agent
+
+ARG OMP_VERSION=v18.1.16
+ARG OMP_SHA256=d8612389c7af3cf3b69609c9149bff3cf07dcb65774b231d9dc4966b176b9720
+
+COPY agent/omp/config.yml /home/dev/.omp/agent/config.yml
+
+USER root
+# ~/.omp (and agent/, where omp keeps its agent.db database) must be
+# dev-writable: omp extracts its pi_natives addon into ~/.omp/natives and
+# opens ~/.omp/agent/agent.db at startup. Only config.yml itself stays
+# root-owned in the image — an advisory layer; the read-only Compose bind
+# is the runtime enforcement of the provider policy.
+RUN printf '"github:can1357/oh-my-pi" = "%s"\n' "${OMP_VERSION#v}" >>/home/dev/.config/mise/config.toml \
+ && chown dev:dev /home/dev/.omp /home/dev/.omp/agent
+USER dev
+RUN mise install --yes \
+ && omp_bin="$(mise where github:can1357/oh-my-pi)/omp" \
+ && test -x "$omp_bin" \
+ && omp --version | grep -qF "${OMP_VERSION#v}" \
+ && echo "${OMP_SHA256}  $omp_bin" | sha256sum --strict --check -
+RUN omp --version && echo "agent layer ok"

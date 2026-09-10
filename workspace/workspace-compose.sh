@@ -163,6 +163,17 @@ fi
 "$wid" --state-dir "$state_dir" "$checkout" >/dev/null 2>&1 ||
 	fail "state identity check failed for $state_dir — it may be recorded for a different checkout; inspect $state_dir/identity.record, then reattach or rehome the state explicitly"
 
+# Agent state (XJVWF4K): omp keeps sessions, memory and its settings under
+# ~/.omp. The workspace state directory provides the persistent half; the
+# provider-restriction policy ships in the image AND is bound read-only over
+# the state mount, because mounting the state dir at ~/.omp would otherwise
+# hide the image's copy.
+agent_state="$state_dir/omp"
+mkdir -p "$agent_state"
+agent_config="$here/agent/omp/config.yml"
+[ -f "$agent_config" ] ||
+	fail "agent config missing: $agent_config (required for the omp state bind)"
+
 # YAML single-quote escaping plus literal-dollar doubling: Compose applies
 # $VAR interpolation to values even inside single quotes, so a path like
 # .../cash$VARIABLE must be emitted as .../cash$$VARIABLE to survive.
@@ -190,6 +201,13 @@ emit() {
 		echo "        source: '$(sq "$b")'"
 		echo "        target: '$(sq "$b")'"
 	done
+	echo "      - type: bind"
+	echo "        source: '$(sq "$agent_state")'"
+	echo "        target: /home/dev/.omp"
+	echo "      - type: bind"
+	echo "        source: '$(sq "$agent_config")'"
+	echo "        target: /home/dev/.omp/agent/config.yml"
+	echo "        read_only: true"
 	echo "      - linux-caches:/hestia/cache"
 	# Host and container UIDs differ; git only operates on repositories it
 	# considers safely owned. Scope the exception to exactly the mounted

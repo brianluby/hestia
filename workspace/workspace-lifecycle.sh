@@ -85,16 +85,18 @@ verify_state_identity() {
 	state_bind=""
 	while IFS= read -r src; do
 		case "$src" in
-		"$canonical") ;;
-		*/.git) ;;
-		"") ;;
+		"$canonical" | */.git | "") ;;
 		*)
-			[ -z "$state_bind" ] || fail "cannot identify a unique state bind in $file — regenerate it"
-			state_bind="$src"
+			# The state bind is the one carrying the identity record; other
+			# binds (agent state, policy files) do not.
+			if [ -f "$src/identity.record" ]; then
+				[ -z "$state_bind" ] || fail "multiple binds carry an identity record in $file — regenerate it"
+				state_bind="$src"
+			fi
 			;;
 		esac
 	done < <(sed -n "s/^        source: '\(.*\)'$/\1/p" "$file")
-	[ -n "$state_bind" ] || fail "no state bind found in $file — regenerate it"
+	[ -n "$state_bind" ] || fail "no state bind with an identity record found in $file — regenerate it"
 	[ -f "$state_bind/identity.record" ] ||
 		fail "state record missing in $state_bind — regenerate the Compose file before reusing this workspace"
 	"$here/identity/workspace-id.sh" --state-dir "$state_bind" "$canonical" >/dev/null ||
