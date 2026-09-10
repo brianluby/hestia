@@ -35,8 +35,25 @@ mkdir -p "$tmp_base"
 root="$(mktemp -d "$tmp_base/hestia-mount-XXXXXXXX")"
 fx=""
 cleanup() {
+	# Keep artifacts for inspection when anything failed (or KEEP_ARTIFACTS=1);
+	# containers are still torn down, files are preserved.
+	cleanup_compose >/dev/null 2>&1 || true
+	if [ "${fail:-0}" -gt 0 ] || [ "${KEEP_ARTIFACTS:-0}" = "1" ]; then
+		echo "preserving artifacts for inspection: $root (fixture: ${fx:-n/a})" >&2
+		return 0
+	fi
 	[ -n "$fx" ] && rm -rf "$fx"
 	rm -rf "$root"
+	return 0
+}
+cleanup_compose() {
+	docker compose -f "$root/main.yaml" down --remove-orphans >/dev/null 2>&1 || true
+	for f in "$root"/wt-*.yaml; do
+		[ -f "$f" ] && docker compose -f "$f" down --remove-orphans >/dev/null 2>&1 || true
+	done
+	for v in $(sed -n 's/^name: //p' "$root"/*.yaml 2>/dev/null); do
+		docker volume rm "${v}_linux-caches" >/dev/null 2>&1 || true
+	done
 	return 0
 }
 trap cleanup EXIT
@@ -57,12 +74,22 @@ TMPDIR="$tmp_base" "$here/fixtures/bin/make-fixture.sh" >"$root/make-fixture.log
 	echo "FAIL - fixture creation"
 	exit 1
 }
-fx="$(sed -n 's/^root: //p' "$root/make-fixture.log")"
+fx_count="$(grep -c '^root: ' "$root/make-fixture.log")"
+fx="$(sed -n 's/^root: //p' "$root/make-fixture.log" | head -1)"
+if [ "$fx_count" -ne 1 ] || [ -z "$fx" ] || [ ! -d "$fx" ]; then
+	echo "FAIL - fixture root not uniquely parsed from make-fixture log" >&2
+	exit 1
+fi
 repo="$fx/repo"
 cp "$repo/NOTES.md" "$root/NOTES.md.orig"
 export HESTIA_STATE_ROOT="$root/hestia-state"
 
-# wrun <workdir> <extra -v binds...> -- handled inline below
+# Extract the bind pairs from a GENERATED compose file so these legs exercise
+# the generator's actual output rather than a hand-written copy of it.
+gen_bind_args() {
+	awk "/^        source: '/{s=\$0; sub(/^        source: '/,\"\",s); sub(/'$/,\"\",s)}
+	     /^        target: '/{t=\$0; sub(/^        target: '/,\"\",t); sub(/'$/,\"\",t); print s\":\"t}" "$1"
+}
 echo "== generator =="
 "$gen" --out "$root/main.yaml" "$repo" 2>/dev/null
 [ -f "$root/main.yaml" ] && ok "compose file written for main checkout" || bad "no compose file"
@@ -100,10 +127,12 @@ for wt in wt-abs wt-rel; do
 	"$gen" --out "$root/$wt.yaml" "$wdir" 2>/dev/null
 	[ "$(grep -c 'type: bind' "$root/$wt.yaml")" -eq 3 ] &&
 		ok "$wt: checkout + metadata + state binds" || bad "$wt: bind count"
-	binds=(-v "$wdir:$wdir" -v "$repo/.git:$repo/.git"
-		-e GIT_CONFIG_COUNT=2
+	binds=(-e GIT_CONFIG_COUNT=2
 		-e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0="$wdir"
 		-e GIT_CONFIG_KEY_1=safe.directory -e GIT_CONFIG_VALUE_1="$repo/.git")
+	while IFS= read -r pair; do
+		binds+=(-v "$pair")
+	done < <(gen_bind_args "$root/$wt.yaml")
 	common_ctr="$(docker run --rm --network none "${binds[@]}" -w "$wdir" "$image" \
 		git rev-parse --git-common-dir 2>"$root/$wt.err")" || cat "$root/$wt.err" >&2
 	case "$common_ctr" in
@@ -124,16 +153,18 @@ for wt in wt-abs wt-rel; do
 done
 
 echo "== exposure limits =="
-main_src_visible="$(docker run --rm --network none \
-	-v "$fx/worktrees/wt-rel:$fx/worktrees/wt-rel" -v "$repo/.git:$repo/.git" \
+wt_rel_binds=()
+while IFS= read -r pair; do
+	wt_rel_binds+=(-v "$pair")
+done < <(gen_bind_args "$root/wt-rel.yaml")
+main_src_visible="$(docker run --rm --network none "${wt_rel_binds[@]}" \
 	-w "$fx/worktrees/wt-rel" "$image" sh -c "ls '$repo' 2>/dev/null")"
 case "$main_src_visible" in
 ".git") ok "worktree container sees only metadata of the main checkout, no sibling source" ;;
 "") ok "main checkout path not visible at all" ;;
 *) bad "sibling source exposed: $main_src_visible" ;;
 esac
-socket="$(docker run --rm --network none \
-	-v "$fx/worktrees/wt-rel:$fx/worktrees/wt-rel" -v "$repo/.git:$repo/.git" \
+socket="$(docker run --rm --network none "${wt_rel_binds[@]}" \
 	"$image" sh -c 'test -e /var/run/docker.sock && echo yes || echo no')"
 [ "$socket" = "no" ] && ok "no host Docker socket in container" || bad "docker socket exposed"
 mkdir -p "$tmp_base/sibling-of-fixture"

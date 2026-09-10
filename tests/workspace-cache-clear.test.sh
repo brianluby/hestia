@@ -32,6 +32,13 @@ mkdir -p "$tmp_base"
 root="$(mktemp -d "$tmp_base/hestia-cacheclear-XXXXXXXX")"
 fx=""
 cleanup() {
+	# Keep artifacts for inspection when anything failed (or KEEP_ARTIFACTS=1);
+	# containers are still torn down, files are preserved.
+	cleanup_compose >/dev/null 2>&1 || true
+	if [ "${fail:-0}" -gt 0 ] || [ "${KEEP_ARTIFACTS:-0}" = "1" ]; then
+		echo "preserving artifacts for inspection: $root (fixture: ${fx:-n/a})" >&2
+		return 0
+	fi
 	[ -n "$fx" ] && rm -rf "$fx"
 	rm -rf "$root"
 	return 0
@@ -53,7 +60,12 @@ TMPDIR="$tmp_base" "$here/fixtures/bin/make-fixture.sh" >"$root/make-fixture.log
 	echo "FAIL - fixture creation"
 	exit 1
 }
-fx="$(sed -n 's/^root: //p' "$root/make-fixture.log")"
+fx_count="$(grep -c '^root: ' "$root/make-fixture.log")"
+fx="$(sed -n 's/^root: //p' "$root/make-fixture.log" | head -1)"
+if [ "$fx_count" -ne 1 ] || [ -z "$fx" ] || [ ! -d "$fx" ]; then
+	echo "FAIL - fixture root not uniquely parsed from make-fixture log" >&2
+	exit 1
+fi
 repo="$fx/repo"
 
 "$gen" --out "$root/ws.yaml" "$repo" 2>/dev/null
@@ -61,9 +73,13 @@ ws_id="$(sed -n 's/^name: //p' "$root/ws.yaml")"
 volume="${ws_id}_linux-caches"
 state_dir="$HESTIA_STATE_ROOT/$ws_id"
 
+sentinel="hestia-sentinel-$$"
+docker volume create "$sentinel" >/dev/null
+
 cleanup_compose() {
 	docker compose -f "$root/ws.yaml" down --remove-orphans >/dev/null 2>&1 || true
 	docker volume rm "$volume" >/dev/null 2>&1 || true
+	docker volume rm "$sentinel" >/dev/null 2>&1 || true
 	return 0
 }
 trap 'cleanup_compose; cleanup' EXIT
@@ -82,8 +98,13 @@ docker compose -f "$root/ws.yaml" exec -T workspace \
 "$here/fixtures/bin/fixture-snapshot.sh" capture "$repo" "$fx/snapshots/10-before-clear" >/dev/null
 
 echo "== clear caches =="
-out="$("$life" clear-caches "$root/ws.yaml" 2>&1)" &&
-	ok "clear-caches completes: $out" || bad "clear-caches failed: $out"
+if "$life" clear-caches "$root/ws.yaml" >"$root/clear.log" 2>&1; then
+	ok "clear-caches completes (log: $root/clear.log)"
+else
+	bad "clear-caches failed (log: $root/clear.log: $(tail -1 "$root/clear.log"))"
+fi
+docker volume inspect "$sentinel" >/dev/null 2>&1 &&
+	ok "unrelated sentinel volume untouched by clearing" || bad "sentinel volume removed"
 fresh="$(docker compose -f "$root/ws.yaml" exec -T workspace \
 	sh -c 'test -d /hestia/cache/go/build && echo stale || echo fresh-empty' 2>/dev/null)"
 [ "$fresh" = "fresh-empty" ] &&
@@ -101,7 +122,9 @@ docker compose -f "$root/ws.yaml" exec -T workspace \
 grep -q "ok  .*example.com/hestia-synthetic/greet" "$root/build2.log" &&
 	ok "build/tests pass again after clearing (caches regenerate)" || bad "rebuild failed"
 
-echo "== guards =="
+echo "== guards (rejections must also leave resources unchanged) =="
+volumes_before="$(docker volume ls -q | sort)"
+containers_before="$(docker compose -f "$root/ws.yaml" ps -aq | sort)"
 printf 'name: hestia-impostor\nservices:\n  workspace:\n    image: busybox\n' >"$root/impostor.yaml"
 if "$life" clear-caches "$root/impostor.yaml" >/dev/null 2>&1; then
 	bad "workspace without a declared cache volume refused"
@@ -113,6 +136,10 @@ if "$life" clear-caches "$root/no-such-file.yaml" >/dev/null 2>&1; then
 else
 	ok "missing compose file rejected"
 fi
+volumes_after="$(docker volume ls -q | sort)"
+containers_after="$(docker compose -f "$root/ws.yaml" ps -aq | sort)"
+[ "$volumes_before" = "$volumes_after" ] && [ "$containers_before" = "$containers_after" ] &&
+	ok "rejected operations changed no volumes or containers" || bad "rejection mutated docker state"
 
 cleanup_compose
 echo
