@@ -227,3 +227,32 @@ Host: macOS 25.6.0 arm64, Docker server 29.5.2. Decision source: A5H3NY9
   over TLS; the provenance is fetched from GitHub's attestations API at
   build time. GitHub is the root of the chain — an explicit, documented
   limitation, not a claim of independence from it.
+
+## Full-review fixes — 2026-09-09, commit a868bfa reviewed
+
+All five reproduced findings from the full repository review
+([archive](reviews/2026-09-09-full-review-a868bfa.md)) were fixed and
+regression-tested:
+
+- **AG2HKSM (P1):** every lifecycle Compose invocation now passes
+  `-p "$project"`; an ambient `COMPOSE_PROJECT_NAME` override can no longer
+  redirect operations to a foreign project (regression: a foreign project's
+  running container survives the override).
+- **G2ADH4M (P2):** snapshots hash raw working-tree bytes — NUL-delimited
+  enumeration, `hash-object --no-filters`, explicit symlink and
+  missing-file handling, propagated failures. Regressions: non-ASCII content
+  changes, LF→CRLF flips under `*.txt text eol=lf`, symlink retargets and
+  tracked-file deletions all fail comparison (previously compared clean).
+- **Q6ZE1W0 (P2):** lifecycle commands revalidate the durable identity
+  against the saved Compose file before reusing state or touching a working
+  container (read-only check; a tampered record fails validate and start).
+- **GGGET9D (P2):** daemon preflight plus error-propagating existence and
+  running queries — an unreachable DOCKER_HOST fails commands instead of
+  reporting a successful stop.
+- **QAPTN0Y (P2):** a relative `HESTIA_STATE_ROOT` is rejected with a clear
+  error before any state or file is written (its meaning would differ between
+  the generator's and the Compose file's directories).
+
+Suites after the fixes: fixture-snapshot 7/7, identity 19/19, mounts 31/31,
+lifecycle 23/23, cache-clear 12/12 — 92 checks on macOS 25.6.0 arm64
+(Docker server 29.5.2), image `sha256:da4e08c28c50...b46d` unchanged.
