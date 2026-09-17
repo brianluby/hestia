@@ -2,7 +2,7 @@
 
 [Project overview](../README.md) · [Architecture decisions](architecture.md) · [Milestone 1 spec](milestone-1.md)
 
-The current state is a verified foundation: architecture defaults and the Milestone 1 specification stand, and the Milestone 1A fixture, identity, image, scoped mounts, lifecycle and cache-clearing slices are implemented and verified on macOS arm64 (see the [evidence log](evidence.md) and the [review disposition](reviews/2026-09-09-ocr-prs-1-8-disposition.md)). Agent integration, the Argus pilot, concurrency and later milestones remain. These milestones describe acceptance order, not delivered features or deadlines. Record actual platforms, versions, actions, and results. Lifecycle names do not imply an implemented Hestia CLI.
+The fixture foundation is implemented: image, identity, scoped mounts, lifecycle/cache helpers and optional omp state/settings persistence have macOS arm64 evidence (see the [evidence log](evidence.md)). omp uses the upstream config overlay rather than a read-only settings bind. Real AWS authentication, agent-assisted work and native session resume remain unverified; Argus, concurrency and later milestones remain pending. These milestones describe acceptance order, not deadlines or broader platform support. Lifecycle helpers are not a custom Hestia CLI.
 
 ## 1. Foundation and Argus pilot
 
@@ -13,16 +13,16 @@ The [Milestone 1 spec](milestone-1.md) defines requirements M1-01 through M1-09 
 - On the available Apple Silicon Mac, use a synthetic repository with an actual build/test, declared mise toolchain, dirty Git states and linked-worktree fixture.
 - Establish the canonical build path, effective permissions, host source access, artifact separation and lifecycle behavior.
 - Validate deterministic identities for matching directory names and worktrees, path-consistent Git metadata mounts, and synthetic state persistence. These fundamentals must precede later concurrency proofs.
-- Integrate one selected agent and verify recreation with source/state comparisons, real file operations and isolated resources. No employer source, credentials or endpoints are required here.
+- Complete acceptance of the selected omp/Bedrock integration: real authentication, an agent-assisted fixture change and native session resume after recreation. State/settings persistence and missing-auth failure are already exercised. No employer source, credentials or endpoints are required here.
 
 ### 1B. Argus on the employer work laptop
 
-- Confirm laptop OS/CPU/runtime, selected agent and Argus toolchain/build/test/service requirements there.
+- Confirm laptop OS/CPU/runtime and Argus toolchain/build/test/service requirements there; omp/Bedrock is the selected first agent integration.
 - Use the real agent to make a reviewable change, build/test Argus, remove/recreate the workspace, resume selected state and build/test again.
 - Keep source, credentials, employer-specific configuration and detailed evidence on the work laptop. Share only sanitized outcomes appropriate for Hestia documentation.
 - If this laptop uses Windows/WSL2, exercise its pilot path now. The broader matrix in Milestone 5 is additional coverage.
 
-Milestone 1 closes only after the Argus journey and M1 requirements pass. Fixture success, a running shell, or a version check alone is insufficient. There are no completed runtime checks yet.
+Milestone 1 closes only after the Argus journey and M1 requirements pass. The recorded fixture runtime checks do not establish Argus compatibility or complete native agent acceptance.
 
 ## 2. Concurrent projects
 

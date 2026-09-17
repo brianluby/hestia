@@ -1,9 +1,12 @@
 # omp agent settings for Hestia workspaces (XJVWF4K, user decision TG7VZBV).
-# Installed root-owned and read-only for the runtime user: the provider
-# restriction is workspace policy, not user preference. Merge this key into an
-# existing config rather than replacing the file — everything except bedrock
-# is disabled; bedrock authenticates through the standard AWS credential
-# chain supplied at runtime (never baked into images, Compose or logs).
+# Baked root-owned at /opt/hestia/omp/config.yml and loaded as a config
+# overlay via PI_CONFIG_FILES (FA5H9TR): omp merges overlays after the user's
+# own config, so these keys win every merge, and it refuses to start when a
+# configured overlay file is missing, so the policy is fail-closed. The dev
+# user's own settings live in the writable ~/.omp/agent/config.yml provided
+# by the workspace state mount. Everything except bedrock is disabled;
+# bedrock authenticates through the standard AWS credential chain supplied
+# at runtime (never baked into images, Compose or logs).
 disabledProviders:
   - "abliteration"
   - "aiand"

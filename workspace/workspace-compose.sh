@@ -165,14 +165,18 @@ fi
 
 # Agent state (XJVWF4K): omp keeps sessions, memory and its settings under
 # ~/.omp. The workspace state directory provides the persistent half; the
-# provider-restriction policy ships in the image AND is bound read-only over
-# the state mount, because mounting the state dir at ~/.omp would otherwise
-# hide the image's copy.
+# whole tree is writable so omp can persist settings (model selection, theme)
+# with its atomic tmp+rename write (FA5H9TR). The provider-restriction policy
+# ships in the image at /opt/hestia/omp/config.yml — a root-owned directory,
+# so the runtime user can neither edit nor replace it — and is loaded as a
+# config overlay via PI_CONFIG_FILES: omp merges overlays after the user's
+# own config (overlay wins) and refuses to start when a configured overlay is
+# missing, so the policy cannot be overridden by editing the writable config.
+# The policy is loaded by env var rather than a bind because mounting the
+# state dir at ~/.omp would hide any image copy under that tree, and binding
+# a read-only file into it made omp's atomic settings writes fail (EBUSY).
 agent_state="$state_dir/omp"
 mkdir -p "$agent_state"
-agent_config="$here/agent/omp/config.yml"
-[ -f "$agent_config" ] ||
-	fail "agent config missing: $agent_config (required for the omp state bind)"
 
 # YAML single-quote escaping plus literal-dollar doubling: Compose applies
 # $VAR interpolation to values even inside single quotes, so a path like
@@ -204,10 +208,6 @@ emit() {
 	echo "      - type: bind"
 	echo "        source: '$(sq "$agent_state")'"
 	echo "        target: /home/dev/.omp"
-	echo "      - type: bind"
-	echo "        source: '$(sq "$agent_config")'"
-	echo "        target: /home/dev/.omp/agent/config.yml"
-	echo "        read_only: true"
 	echo "      - linux-caches:/hestia/cache"
 	# Host and container UIDs differ; git only operates on repositories it
 	# considers safely owned. Scope the exception to exactly the mounted
@@ -225,6 +225,10 @@ emit() {
 	# never in the shared source tree or the durable state directory.
 	echo "      GOCACHE: /hestia/cache/go/build"
 	echo "      GOMODCACHE: /hestia/cache/go/mod"
+	# Provider-restriction policy overlay (FA5H9TR): root-owned in the image,
+	# merged after the user's own config so it cannot be overridden, and
+	# fail-closed (omp errors out when a configured overlay is missing).
+	echo "      PI_CONFIG_FILES: /opt/hestia/omp/config.yml"
 	echo "volumes:"
 	echo "  linux-caches:"
 }

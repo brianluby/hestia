@@ -1,12 +1,12 @@
 # Hestia
 
-Hestia is a planned, terminal-first development container environment for Apple Silicon macOS and Windows through WSL2. The goal is reproducible toolchains and disposable containers without disposable work.
+Hestia is a terminal-first development container project targeting Apple Silicon macOS and Windows through WSL2. The goal is reproducible toolchains and disposable containers without disposable work.
 
-**Status: specification ready; foundation implementation starting.** This repository contains accepted architecture defaults, a Milestone 1 specification, ignore rules, and the first implementation slices: an isolated synthetic build/test fixture under `fixtures/`, a checkout-derived identity helper under `identity/`, a canonical Dockerfile with a non-root mise base plus an explicit fixture-toolchain stage (linux/arm64), a scoped-mount Compose generator with disposable Linux caches and identity-checked durable state, an explicit lifecycle helper (start/attach/stop/recreate), and an optional omp agent layer with scoped durable state under `workspace/` and `agent/`, all verified on macOS arm64 with results in the [evidence log](docs/evidence.md). No Compose configuration or custom CLI is implemented yet. Neither target platform has been validated end to end.
+**Status: fixture foundation implemented; Milestone 1 acceptance incomplete.** The synthetic Go fixture, checkout identity, canonical linux/arm64 image, scoped Compose generator, durable state, lifecycle/cache helpers and optional omp layer have macOS arm64 evidence in the [evidence log](docs/evidence.md). omp settings persistence and the provider-policy overlay are exercised; real AWS authentication, agent-assisted work and native session resume remain unverified. Argus and Windows/WSL2 acceptance are pending. There is no custom Hestia CLI.
 
 ## Intended workflow
 
-The following describes the proposed experience, not available commands:
+The [workspace walkthrough](workspace/README.md#fixture-walkthrough) is runnable with the current fixture tools. The broader project workflow remains the goal:
 
 1. Select an existing host repository (for example under `~/repos`) and identify its checkout and, when applicable, shared Git metadata. Host tools continue using the same source files.
 2. Start its workspace through Docker Compose using one canonical image/build path. Use mise to manage the repository's declared toolchains.
@@ -22,7 +22,7 @@ The following describes the proposed experience, not available commands:
 - Optional agents and project services, not an agent orchestration framework.
 - No default host Docker socket mount or broad credential/home-directory mounts.
 
-The first milestone has two evidence stages: a nonproprietary fixture on the available Apple Silicon Mac, followed by the Argus pilot on the employer work laptop. Argus source, credentials, and employer-specific configuration stay there. Fixture success alone does not complete the milestone. Work-laptop platform, first agent, and Argus build/service requirements remain open.
+The first milestone has two evidence stages: a nonproprietary fixture on the available Apple Silicon Mac, followed by the Argus pilot on the employer work laptop. Argus source, credentials, and employer-specific configuration stay there. Fixture success alone does not complete the milestone. omp with AWS Bedrock is selected for the first agent integration; work-laptop platform and Argus build/service requirements remain open.
 
 Identity and worktree mount planning are part of the foundation; full concurrent workloads, backup/restore, and the broader platform matrix follow. A future browser IDE variant will share the terminal variant's tools and state. Browser IDE and voice implementation are optional, not prerequisites for terminal use.
 
