@@ -71,7 +71,7 @@ RUN="$(mktemp -d "$HOME/hestia-test-runs/run-XXXXXXXX")"
 RUN="$(cd "$RUN" && pwd -P)"
 export TMPDIR="$RUN"
 export HESTIA_STATE_ROOT="$RUN/state"
-"$HESTIA/fixtures/bin/make-fixture.sh"
+MISE_TRUSTED_CONFIG_PATHS="$RUN" "$HESTIA/fixtures/bin/make-fixture.sh"
 ```
 
 The helper prints progress, not just a path. Find its final `fixture ready:` line
@@ -92,10 +92,10 @@ git -C "$REPO" status --short
 has staged, unstaged and untracked changes; both linked worktrees exist under
 `$FIXTURE/worktrees`; snapshot comparison exits zero. A dirty tree is intentional.
 
-If host mise refuses the newly created config, inspect and deliberately trust
-that exact config. Keep the failed fixture for diagnosis and rerun creation only
-after resolving the host trust/toolchain policy; do not disable trust controls
-globally. Only use a fixture that reaches `fixture ready:`.
+The command deliberately trusts only the newly created synthetic tree, following
+the [workspace walkthrough](../workspace/README.md#fixture-walkthrough). Inspect
+real repositories before trusting their configuration; do not disable trust
+controls globally. Only use a fixture that reaches `fixture ready:`.
 
 ## 3. Build and inspect the workspace
 
@@ -116,8 +116,9 @@ a non-root default user. The Compose definition has a checkout-derived
 `hestia-…` project name, the checkout mounted at its identical absolute path,
 workspace-scoped durable state under `$RUN/state`, and a `linux-caches` volume.
 It must not expose host home, sibling source, Docker socket or published ports.
-The optional omp state/config mounts are described in the workspace reference;
-they do not mean omp is installed in the fixture-tools image.
+The omp state mount is described in the workspace reference; it does not mean
+omp is installed in the fixture-tools image. Agent provider policy is baked into
+the agent image as a config overlay, not mounted over writable user settings.
 
 Read the generated top-level `name:` and derive the project name:
 
@@ -449,7 +450,8 @@ these suite artifacts are separate from the manual run's `$RUN`.
 
 ## Draft verification
 
-2026-09-16, Darwin arm64: all 26 shell blocks parsed with `bash -n`; all 15
+Before integrating newer `origin/main` changes, on 2026-09-16, Darwin arm64:
+all 26 shell blocks parsed with `bash -n`; all 15
 relative links across this runbook and the README resolved; neither changed
 document was ignored by Git. `bash tests/workspace-id.test.sh` passed 19/19.
 `bash tests/workspace-lifecycle.test.sh` exercised real Docker containers and
