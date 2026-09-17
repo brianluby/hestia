@@ -11,9 +11,11 @@ containers; Windows/WSL2 and other architectures are not established by it.
 Stop at an unexpected result, retain the fixture and record the failing command,
 exit status and sanitized output. Do not continue to destructive steps after a
 failed preservation check.
-Run commands one at a time; stop on any unexpected nonzero exit. For silent
-checks such as `test` and `cmp`, run `echo "$?"` immediately afterwards: zero
-means success. Do not paste through a failed check.
+Run commands one at a time; stop on any unexpected nonzero exit. Silent checks
+and snapshot comparisons use `|| exit 1` to stop the dedicated host Bash shell
+before a later command can hide a failure. On failure, retain the printed paths
+and restore the run's variables in a new Bash shell before investigating; do not
+continue to recreation or cache clearing. Failed checks do not delete test data.
 
 ## 1. Prepare the host
 
@@ -82,15 +84,17 @@ and assign **that exact absolute path**, without the prefix:
 FIXTURE="$RUN/hestia-fixture-XXXXXXXX"
 REPO="$FIXTURE/repo"
 COMPOSE="$RUN/workspace.yaml"
-test -d "$REPO/.git"
+test -d "$REPO/.git" || exit 1
 cat "$FIXTURE/FIXTURE.txt"
 git -C "$REPO" status --short
-"$HESTIA/fixtures/bin/fixture-snapshot.sh" compare "$REPO" "$FIXTURE/snapshots/00-created"
+"$HESTIA/fixtures/bin/fixture-snapshot.sh" compare "$REPO" "$FIXTURE/snapshots/00-created" || exit 1
 ```
 
-**Expect:** fixture creation completes its native build/test; the fixture checkout
-has staged, unstaged and untracked changes; both linked worktrees exist under
-`$FIXTURE/worktrees`; snapshot comparison exits zero. A dirty tree is intentional.
+**Expect:** fixture creation completes its native build/test; the synthetic
+checkout at `$REPO` has staged, unstaged and untracked changes; both linked
+worktrees exist under `$FIXTURE/worktrees`; snapshot comparison exits zero.
+The dirty fixture tree is intentional; fixture creation must not modify the
+real Hestia checkout at `$HESTIA`.
 
 The command deliberately trusts only the newly created synthetic tree, following
 the [workspace walkthrough](../workspace/README.md#fixture-walkthrough). Inspect
@@ -125,7 +129,7 @@ Read the generated top-level `name:` and derive the project name:
 ```sh
 PROJECT="$(sed -n 's/^name: //p' "$COMPOSE")"
 STATE="$HESTIA_STATE_ROOT/$PROJECT"
-test -f "$STATE/identity.record"
+test -f "$STATE/identity.record" || exit 1
 docker compose -p "$PROJECT" -f "$COMPOSE" config
 ```
 
@@ -139,7 +143,7 @@ build context, as above; ignore rules are not a security boundary.
 ```sh
 time "$HESTIA/workspace/workspace-lifecycle.sh" start "$COMPOSE"
 BEFORE="$(docker compose -p "$PROJECT" -f "$COMPOSE" ps -q workspace)"
-test -n "$BEFORE"
+test -n "$BEFORE" || exit 1
 docker inspect "$BEFORE" --format '{{json .Mounts}}'
 "$HESTIA/workspace/workspace-lifecycle.sh" attach "$COMPOSE"
 ```
@@ -166,7 +170,7 @@ trust is deliberate and must be repeated in each replacement container.
 Back on the host:
 
 ```sh
-"$HESTIA/fixtures/bin/fixture-snapshot.sh" compare "$REPO" "$FIXTURE/snapshots/00-created"
+"$HESTIA/fixtures/bin/fixture-snapshot.sh" compare "$REPO" "$FIXTURE/snapshots/00-created" || exit 1
 ```
 
 **Expect:** comparison exits zero. Builds have not changed source or Git state;
@@ -216,13 +220,14 @@ Finish attached commands first. These operations interrupt container processes.
 "$HESTIA/workspace/workspace-lifecycle.sh" stop "$COMPOSE"
 "$HESTIA/workspace/workspace-lifecycle.sh" start "$COMPOSE"
 RESTARTED="$(docker compose -p "$PROJECT" -f "$COMPOSE" ps -q workspace)"
-test "$BEFORE" = "$RESTARTED"
+test "$BEFORE" = "$RESTARTED" || exit 1
 "$HESTIA/workspace/workspace-lifecycle.sh" recreate "$COMPOSE"
 AFTER="$(docker compose -p "$PROJECT" -f "$COMPOSE" ps -q workspace)"
-test -n "$AFTER" && test "$BEFORE" != "$AFTER"
-"$HESTIA/fixtures/bin/fixture-snapshot.sh" compare "$REPO" "$FIXTURE/snapshots/01-before-recreate"
-cmp "$RUN/expected-state-marker.txt" "$STATE/tester-marker.txt"
-cmp "$RUN/expected-identity.record" "$STATE/identity.record"
+test -n "$AFTER" || exit 1
+test "$BEFORE" != "$AFTER" || exit 1
+"$HESTIA/fixtures/bin/fixture-snapshot.sh" compare "$REPO" "$FIXTURE/snapshots/01-before-recreate" || exit 1
+cmp "$RUN/expected-state-marker.txt" "$STATE/tester-marker.txt" || exit 1
+cmp "$RUN/expected-identity.record" "$STATE/identity.record" || exit 1
 "$HESTIA/workspace/workspace-lifecycle.sh" attach "$COMPOSE"
 ```
 
@@ -246,9 +251,9 @@ active commands. Do not use Docker prune or `down -v`.
 
 ```sh
 "$HESTIA/workspace/workspace-lifecycle.sh" clear-caches "$COMPOSE"
-"$HESTIA/fixtures/bin/fixture-snapshot.sh" compare "$REPO" "$FIXTURE/snapshots/01-before-recreate"
-cmp "$RUN/expected-state-marker.txt" "$STATE/tester-marker.txt"
-cmp "$RUN/expected-identity.record" "$STATE/identity.record"
+"$HESTIA/fixtures/bin/fixture-snapshot.sh" compare "$REPO" "$FIXTURE/snapshots/01-before-recreate" || exit 1
+cmp "$RUN/expected-state-marker.txt" "$STATE/tester-marker.txt" || exit 1
+cmp "$RUN/expected-identity.record" "$STATE/identity.record" || exit 1
 "$HESTIA/workspace/workspace-lifecycle.sh" attach "$COMPOSE"
 ```
 
@@ -301,8 +306,8 @@ Back on the host:
 
 ```sh
 git -C "$WT_REPO" diff --cached -- worktree-marker.txt
-cmp "$RUN/$WT.git-pointer.before" "$WT_REPO/.git"
-cmp "$RUN/$WT.back-pointer.before" "$REPO/.git/worktrees/$WT/gitdir"
+cmp "$RUN/$WT.git-pointer.before" "$WT_REPO/.git" || exit 1
+cmp "$RUN/$WT.back-pointer.before" "$REPO/.git/worktrees/$WT/gitdir" || exit 1
 "$HESTIA/workspace/workspace-lifecycle.sh" stop "$WT_COMPOSE"
 "$HESTIA/workspace/workspace-lifecycle.sh" remove-runtime "$WT_COMPOSE"
 ```
@@ -450,11 +455,13 @@ these suite artifacts are separate from the manual run's `$RUN`.
 
 ## Draft verification
 
-Before integrating newer `origin/main` changes, on 2026-09-16, Darwin arm64:
-all 26 shell blocks parsed with `bash -n`; all 15
-relative links across this runbook and the README resolved; neither changed
-document was ignored by Git. `bash tests/workspace-id.test.sh` passed 19/19.
-`bash tests/workspace-lifecycle.test.sh` exercised real Docker containers and
-passed 23/23, including a changed container ID, source/Git/durable-state
-preservation and a successful post-recreation build/test. This did not execute
-every manual step above or authenticate/resume a real omp session.
+2026-09-16, Darwin arm64: all 26 shell blocks parsed with `bash -n`; all 17
+relative Markdown link occurrences across this runbook and the README resolved;
+all 18 preservation checks use `|| exit 1`.
+
+Before integrating newer `origin/main` changes, `bash tests/workspace-id.test.sh`
+passed 19/19. `bash tests/workspace-lifecycle.test.sh` exercised real Docker
+containers and passed 23/23, including a changed container ID,
+source/Git/durable-state preservation and a successful post-recreation
+build/test. This did not execute every manual step above or authenticate/resume
+a real omp session.
