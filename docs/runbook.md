@@ -88,7 +88,7 @@ git -C "$REPO" status --short
 "$HESTIA/fixtures/bin/fixture-snapshot.sh" compare "$REPO" "$FIXTURE/snapshots/00-created"
 ```
 
-**Expect:** fixture creation completes its native build/test; the main checkout
+**Expect:** fixture creation completes its native build/test; the fixture checkout
 has staged, unstaged and untracked changes; both linked worktrees exist under
 `$FIXTURE/worktrees`; snapshot comparison exits zero. A dirty tree is intentional.
 
