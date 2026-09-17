@@ -2,7 +2,7 @@
 
 [Overview](../README.md) · [Milestone 1](milestone-1.md) · [Roadmap](roadmap.md)
 
-**Status:** design accepted 2026-09-09; implementation pending. Targets: Apple Silicon macOS and Windows/WSL2. Argus's work-laptop platform is unconfirmed.
+**Status:** design accepted 2026-09-09; fixture foundation and optional omp layer implemented with macOS arm64 evidence. Real agent authentication/resume and Argus acceptance remain pending. Targets: Apple Silicon macOS and Windows/WSL2; the latter is unverified and Argus's work-laptop platform is unconfirmed.
 
 ## Shared foundation
 
@@ -46,7 +46,7 @@ Ownership handling must reflect the runtime: host and container UIDs need not ma
 
 **Status: Accepted design.** Matching repository names and sibling worktrees must not collide.
 
-**Decision:** repository identity groups checkouts by canonical common Git directory; workspace identity uses the canonical checkout path. Derive a Compose project name using a sanitized, length-bounded label and deterministic path hash: `hestia-<label>-<hash>`. Document and test the exact encoding/truncation during implementation. Check the full recorded path before reusing existing state to detect collisions.
+**Decision:** repository identity groups checkouts by canonical common Git directory; workspace identity uses the canonical checkout path. Derive a Compose project name using a sanitized, length-bounded label and deterministic path hash: `hestia-<label>-<hash>`. The implemented label is capped at 24 characters; the hash is the first 12 lowercase hex characters of SHA-256 over the UTF-8 canonical path without a trailing newline ([exact encoding](../identity/README.md#exact-encoding)). Check the full recorded path before reusing existing state to detect collisions.
 
 Use this identity consistently for containers, networks, caches, and agent/service state. Let Compose namespace resources; avoid fixed container names and globally named volumes. Branch, tool, agent, or future IDE variant changes preserve identity. Different checkout paths receive different identities. Do not use remote URLs or branch names as identity. Handle host-port conflicts separately; resource naming does not namespace host ports.
 
@@ -64,6 +64,8 @@ Run one workspace variant per checkout by default. A future IDE variant adds an 
 
 **Consequences:** builds need downloads; warm startup is predictable. Shared declarations do not prove byte-for-byte reproducibility. No universal toolchain image or mandatory service stack is required.
 
+Current implementation: Debian bookworm-slim, pinned mise and a non-root `dev` user; the `fixture-tools` target installs only the synthetic fixture's Go declaration. Mounting another repository does not build its toolchain. The optional `agent` target adds pinned omp; only linux/arm64 has been exercised. See [evidence](evidence.md) for versions and verification boundaries.
+
 ## ADR-004: Native authentication and scoped agent state
 
 **Status: Accepted.** Preserve sessions with scoped credentials and native agent controls.
@@ -74,30 +76,31 @@ Keep Git authentication separate: use a scoped credential helper or supported SS
 
 **Consequences:** some workspaces need separate login. Deliberate credential sharing can follow a demonstrated need. Agents can access credentials supplied to them; containerization adds no separate protection against that authorized access. Logout/revocation must preserve source and unrelated sessions. Back up useful state; prefer reauthentication on restore. If required state mixes credentials with sessions, treat its backup as sensitive and encrypt it. Full backup/restore follows the pilot.
 
+The selected integration is omp with AWS Bedrock. `~/.omp` is workspace-scoped writable state; root-owned `/opt/hestia/omp/config.yml` loads through `PI_CONFIG_FILES` after global/project settings and before runtime overrides. This upstream overlay mechanism replaces the read-only settings bind that broke atomic settings writes. It is not a security boundary against control of the process environment or runtime overrides. Settings persistence is exercised; real credential-chain use and native session resume are not.
+
 ## ADR-005: Lifecycle preserves work
 
 **Status: Accepted design.** Runtime cleanup must be independent of user-data deletion.
 
 | Operation | Contract |
 | --- | --- |
-| Start | Validate config, paths, identity and access; create/start the selected workspace |
+| Start | Check recorded identity, Compose config and local image before creating/starting the workspace |
 | Attach | Open another terminal in the existing workspace |
 | Stop | Stop processes; retain runtime resources and persistent data |
 | Remove container | Remove runtime resources; preserve source, state and persistent volumes |
-| Rebuild | Explicitly rebuild/recreate; preserve durable data |
-| Clear caches | Delete only identified disposable caches for the selected workspace |
+| Rebuild/recreate | Build explicitly; recreate preflights identity, Compose config and local image before stopping/removing runtime; preserve durable data |
+| Clear caches | Perform the same preflight, then delete only the selected workspace's identified disposable cache volume and restart |
 | Delete workspace state | Separate destructive action that previews and confirms precisely named resources |
 
-These are behavior names, not implemented commands. Begin with Compose and small helpers for demonstrated gaps. Rebuild may interrupt processes; finish active work first. Failures must be actionable and must not mutate source as a repair. Routine operations never perform global prune, implicit volume deletion, or source deletion. Destructive state-deletion automation may remain deferred in Milestone 1.
+`workspace/workspace-lifecycle.sh` implements validate/start/attach/stop/remove-runtime/recreate/clear-caches over Compose; `validate` runs the same preflight without runtime mutation. Builds remain explicit Docker operations. Preflight failure leaves the existing runtime and caches alone; it does not guarantee recovery from a later runtime failure. Finish active work before recreation or cache clearing. Routine operations never perform global prune, implicit volume deletion, or source deletion. Destructive state-deletion automation remains deferred.
 
 Tests use unique disposable identities and synthetic storage, never production resources. Cache clearing must leave source/Git and selected durable state unchanged.
 
 ## Remaining implementation choices
 
-- User/work laptop: OS/CPU, available runtime, first agent, Argus build/tests/services. Argus remains employer-local.
-- Foundation: distribution, package list, verified mise/tool versions, canonical file layout, identity encoding, mount/ownership strategy and fixture toolchain.
-- Agent integration: credential/state paths, login transport/refresh and session resumption evidence.
-- Later: backup mechanism and broader Windows/WSL2 matrix. No support/performance claims are established here.
+- User/work laptop: OS/CPU, available runtime and Argus build/tests/services. Argus remains employer-local.
+- Agent acceptance: runtime AWS credentials, login/refresh behavior, a real agent-assisted change and native session resumption across recreation. omp/Bedrock and its state/overlay paths are already selected.
+- Later: project-specific tools/services beyond fixture Go, backup mechanism and broader Windows/WSL2 matrix. No broader support/performance claims are established here.
 
 ## Primary references
 

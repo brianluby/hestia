@@ -93,6 +93,15 @@ cleanup_compose() {
 }
 trap 'cleanup_compose; cleanup' EXIT
 
+echo "== escaped checkout and state paths =="
+quoted_repo="$root/developer's \$project"
+mkdir -p "$quoted_repo"
+GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null git -C "$quoted_repo" init -q
+HESTIA_STATE_ROOT="$root/owner's \$state" "$gen" --out "$root/quoted.yaml" "$quoted_repo" 2>/dev/null
+"$life" validate "$root/quoted.yaml" >"$root/quoted.log" 2>&1 &&
+	ok "validate accepts literal apostrophes and dollars in checkout and state paths" ||
+	bad "escaped paths rejected: $(cat "$root/quoted.log")"
+
 echo "== validate / start / attach =="
 "$life" validate "$root/ws.yaml" >/dev/null 2>&1 &&
 	ok "validate accepts the generated workspace" || bad "validate failed"
@@ -107,6 +116,41 @@ state_dir="$HESTIA_STATE_ROOT/$ws_id"
 	ok "attach runs a command in the running workspace" || bad "attach failed"
 [ "$(cat "$state_dir/marker.txt" 2>/dev/null)" = "durable-marker" ] &&
 	ok "durable write through the container lands in the state dir" || bad "state write failed"
+
+assert_workspace_intact() {
+	current="$(docker compose -f "$root/ws.yaml" ps -q workspace)"
+	if [ "$current" = "$id_a" ] &&
+		[ "$(docker inspect -f '{{.State.Running}}' "$id_a")" = true ] &&
+		[ "$(cat "$state_dir/marker.txt")" = durable-marker ] &&
+		docker volume inspect "${ws_id}_linux-caches" >/dev/null 2>&1; then
+		ok "$1"
+	else
+		bad "$1 (workspace changed)"
+	fi
+}
+
+echo "== missing replacement preserves the running workspace =="
+"$gen" --image "hestia-missing:${ws_id}" --out "$root/missing.yaml" "$repo" 2>/dev/null
+for operation in recreate clear-caches; do
+	if "$life" "$operation" "$root/missing.yaml" >"$root/missing-$operation.log" 2>&1; then
+		bad "$operation accepted a missing replacement image"
+	else
+		ok "$operation rejects a missing replacement image"
+	fi
+	assert_workspace_intact "$operation rejection retains running container, durable marker and cache volume"
+done
+
+echo "== malformed Compose file preserves the running workspace =="
+cp "$root/ws.yaml" "$root/malformed.yaml"
+printf '\tinvalid: [\n' >>"$root/malformed.yaml"
+for operation in recreate clear-caches; do
+	if "$life" "$operation" "$root/malformed.yaml" >"$root/malformed-$operation.log" 2>&1; then
+		bad "$operation accepted a malformed Compose file"
+	else
+		ok "$operation rejects a malformed Compose file"
+	fi
+	assert_workspace_intact "$operation malformed-file rejection retains running container, durable marker and cache volume"
+done
 
 echo "== stop / start keeps the container =="
 "$life" stop "$root/ws.yaml" >/dev/null 2>&1 && ok "stop retains the container" || bad "stop failed"
