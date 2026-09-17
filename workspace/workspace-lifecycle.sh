@@ -73,6 +73,12 @@ printf '%s' "$project" | grep -Eq '^hestia-[a-z0-9][a-z0-9-]{0,23}-[0-9a-f]{12}$
 docker info >/dev/null 2>&1 ||
 	fail "docker daemon unreachable (DOCKER_HOST='${DOCKER_HOST:-default}') — cannot query workspace state"
 
+# Invert workspace-compose.sh's single-quoted scalar encoding, not arbitrary
+# YAML: doubled apostrophes quote YAML and doubled dollars quote Compose.
+decode_generated_path() {
+	sed -e "s/''/'/g" -e 's/\$\$/\$/g'
+}
+
 # Revalidate durable identity before an operation can reuse state or touch a
 # working container: the record is checked at generation, but a saved Compose
 # file must not outlive a state directory swapped out from under it. The
@@ -80,10 +86,11 @@ docker info >/dev/null 2>&1 ||
 # being silently recreated here.
 verify_state_identity() {
 	local canonical state_bind src
-	canonical="$(sed -n "s/^    working_dir: '\(.*\)'$/\1/p" "$file" | head -1)"
+	canonical="$(sed -n "s/^    working_dir: '\(.*\)'$/\1/p" "$file" | head -1 | decode_generated_path)"
 	[ -n "$canonical" ] || fail "cannot read working_dir from $file — regenerate it with workspace/workspace-compose.sh"
 	state_bind=""
 	while IFS= read -r src; do
+		src="$(printf '%s' "$src" | decode_generated_path)"
 		case "$src" in
 		"$canonical" | */.git | "") ;;
 		*)
@@ -137,25 +144,30 @@ wait_running() {
 	fail "workspace did not reach running state"
 }
 
+# Check replacement prerequisites before stopping a usable runtime or clearing
+# its caches. This does not promise recovery from a later runtime failure.
+preflight() {
+	local image
+	verify_state_identity
+	dc config -q || fail "Compose file does not validate: $file"
+	image="$(sed -n 's/^    image: //p' "$file" | head -1 | tr -d "'\"")"
+	printf '%s' "$image" | grep -Eq '^[A-Za-z0-9./:@_-]+$' ||
+		fail "cannot parse a well-formed image reference from $file"
+	docker image inspect "$image" >/dev/null 2>&1 ||
+		fail "image '$image' is not present locally — build or pull it explicitly; startup never downloads"
+}
+
 up_detached() {
 	dc up -d --pull never workspace
 }
 
 case "$cmd" in
 validate)
-	verify_state_identity
-	dc config -q || fail "Compose file does not validate: $file"
-	image="$(sed -n 's/^    image: //p' "$file" | head -1 | tr -d "'\"")"
-	printf '%s' "$image" | grep -Eq '^[A-Za-z0-9./:@_-]+$' ||
-		fail "cannot parse a well-formed image reference from $file"
-	if [ -n "$image" ]; then
-		docker image inspect "$image" >/dev/null 2>&1 ||
-			fail "image '$image' is not present locally — build or pull it explicitly; startup never downloads"
-	fi
+	preflight
 	echo "ok: $file (project $project)"
 	;;
 start)
-	verify_state_identity
+	preflight
 	up_detached
 	wait_running
 	echo "workspace running: $(existing_cid)"
@@ -181,7 +193,7 @@ remove-runtime)
 	echo "runtime removed; volumes and state retained"
 	;;
 recreate)
-	verify_state_identity
+	preflight
 	before="$(existing_cid)"
 	if [ -n "$before" ]; then
 		echo "stopping first — finish active work before recreating"
@@ -199,7 +211,7 @@ recreate)
 	echo "recreated: $before -> $after"
 	;;
 clear-caches)
-	verify_state_identity
+	preflight
 	dc config --volumes 2>/dev/null | grep -qx "linux-caches" ||
 		fail "this workspace declares no linux-caches volume; refusing to clear anything"
 	volume="${project}_linux-caches"

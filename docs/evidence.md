@@ -333,3 +333,62 @@ cache-clear 12 — 116 checks total.
   template, not writable, directory not writable (no rename-over), overlay
   wired in the generated Compose file, re-enable attempt shadowed.
 - No credentials exist in any image, Compose output or log.
+
+## Lifecycle review fixes — 2026-09-16
+
+Host: macOS 27.0 (26A428), arm64; Docker client 29.8.1, server 29.5.2
+through Colima. Based on the existing FA5H9TR overlay correction.
+The suites and path smoke checks used existing images:
+
+- Fixture: `sha256:da4e08c28c507e8a9cd5913f15f2fda2fb2fa01dc9a836b4af2dea884edb46d1`.
+- Agent: `sha256:9c7150a7fefd9b35463199896bc080ff37e64100ea0821332d651761b112b026`.
+
+Observed commands (all exit 0):
+
+- `bash tests/workspace-agent.test.sh`: 24 passed, 0 failed.
+- `bash tests/workspace-lifecycle.test.sh`: 32 passed, 0 failed.
+
+Before the fix, Compose decoded an apostrophe in a checkout path correctly,
+but lifecycle validation passed the doubled YAML apostrophe to the identity
+helper and failed with `not a directory`. Lifecycle now reverses the
+generator's apostrophe and dollar escaping for checkout and bind paths.
+A direct disposable-workspace smoke check used both characters in checkout
+and state paths: validate, start, container read of host source, recreate
+with a different container ID, and another source read all passed. Its
+containers, network, cache volume and temporary files were removed.
+
+Replacement preflight now checks identity, Compose validity and local image
+availability before start, recreation or cache clearing. Regression checks
+confirm that recreate and clear-caches reject a missing replacement image
+without changing the running container, durable marker or cache volume.
+This is not rollback for failures that occur after successful preflight.
+
+Authenticated Bedrock acceptance remains blocked: this environment has no
+AWS CLI, credential environment, selected profile/region, or standard shared
+AWS config/credentials files. No credential contents were read or logged.
+Agent checks above prove unauthenticated behavior and filesystem/settings
+persistence, not a native interactive settings change, authenticated agent
+work or real-session resume. Those still require scoped runtime access and
+the user-driven acceptance journey.
+
+The agent image also passed a direct escaped-path runtime smoke check:
+`pwd` inside the container exactly matched the host checkout containing a
+literal apostrophe and dollar sign, and `omp --version` reported
+`omp/18.1.16`, both before and after recreation with a different container
+ID. No authenticated model call was attempted. The initial smoke assertion
+against `docker compose config --format json` was invalid because that
+serialization retains doubled dollars; the actual container path was used
+for verification instead. All resources from this smoke check were removed.
+
+Documentation checks: local file links in the six changed Markdown documents
+resolve; the fixture walkthrough passes `bash -n`, and its fixture-output
+selector matches the helper. The exact walkthrough block then passed under
+`bash -c` (exit 0): tagged Docker build, fixture creation, generation,
+validation, start, attached trust/build/test, recreation with a different
+container ID, re-trust/build/test, clean snapshot comparison and stop.
+The build used cached layers and produced the fixture digest above; this
+does not establish a fresh download/provenance check. Docker emitted its
+legacy-builder deprecation warning. The first harness invocation supplied
+the script over stdin, which Compose exec consumed; the complete successful
+run used `bash -c` instead. Synthetic directories, containers, networks and
+cache volumes from both attempts were removed; the built image tag remains.

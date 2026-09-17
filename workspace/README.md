@@ -17,28 +17,70 @@ workspace/workspace-lifecycle.sh start <file>           # persistent workspace
 The generated service runs `sleep infinity` when started, so it stays
 attachable; `compose run` overrides that for one-off commands.
 
+## Fixture walkthrough
+
+Run from the Hestia repository root in Bash on the exercised Apple Silicon
+Mac with Docker/Compose running, host Git and mise available, and host Go
+1.27.1 already installed through mise. Builds require network access. This
+uses only synthetic source and a fresh directory under Docker-shared `$HOME`.
+The fixture helper itself builds/tests on the host; its narrowly scoped
+`MISE_TRUSTED_CONFIG_PATHS` deliberately trusts only this new synthetic tree.
+
+```sh
+set -euo pipefail
+docker build --target fixture-tools -t hestia-fixture:walkthrough .
+demo="$(mktemp -d "$HOME/hestia-demo-XXXXXXXX")"
+fixture="$(TMPDIR="$demo" MISE_TRUSTED_CONFIG_PATHS="$demo" \
+  fixtures/bin/make-fixture.sh | sed -n 's/^fixture ready: //p')"
+compose="$demo/workspace.yml"
+HESTIA_STATE_ROOT="$demo/state" workspace/workspace-compose.sh \
+  --image hestia-fixture:walkthrough --out "$compose" "$fixture/repo"
+workspace/workspace-lifecycle.sh validate "$compose"
+workspace/workspace-lifecycle.sh start "$compose"
+workspace/workspace-lifecycle.sh attach "$compose" bash -c \
+  'mise trust && mise exec -- go build ./... && mise exec -- go test ./...'
+# Finish active work before replacing the container.
+workspace/workspace-lifecycle.sh recreate "$compose"
+workspace/workspace-lifecycle.sh attach "$compose" bash -c \
+  'mise trust && mise exec -- go build ./... && mise exec -- go test ./...'
+fixtures/bin/fixture-snapshot.sh compare "$fixture/repo" "$fixture/snapshots/00-created"
+workspace/workspace-lifecycle.sh stop "$compose"
+```
+
+For an interactive shell, use `workspace/workspace-lifecycle.sh attach "$compose"`
+while running. Inspect a real repository's mise configuration before trusting it;
+the explicit `mise trust` above is for this known fixture and is repeated after
+recreation. The stopped runtime, cache volume and `$demo` remain available.
+`fixture-tools` installs the fixture's pinned Go only: it does not discover or
+install arbitrary mounted repositories' tools. This walkthrough proves neither
+agent authentication nor Argus/Windows support; credentials are a separate
+runtime concern below.
+
 ## Lifecycle
 
 `workspace/workspace-lifecycle.sh` wraps the operations explicitly:
 
 | Command | Behavior |
 | --- | --- |
-| `validate <file>` | Compose config, image present locally, Hestia project name |
-| `start <file>` | Create and start detached |
+| `validate <file>` | Read-only preflight: recorded identity, Compose config and image present locally |
+| `start <file>` | Preflight, then create and start detached |
 | `attach <file> [cmd...]` | Shell (or command) in the running workspace |
 | `stop <file>` | Stop; container, volumes and state retained |
 | `remove-runtime <file>` | Remove the container; volumes and state retained |
-| `recreate <file>` | Stop (finish active work first), remove runtime, start again — fails if the replacement container ID is not different |
-| `clear-caches <file>` | Remove only this workspace's `linux-caches` volume (name and declaration verified) and restart with a fresh one; durable state and source untouched |
+| `recreate <file>` | Preflight before stopping/removing runtime, then start again — fails if the replacement container ID is not different |
+| `clear-caches <file>` | Preflight, then remove only this workspace's `linux-caches` volume (name and declaration verified) and restart; durable state and source untouched |
 
 The helper never runs `down -v`, prunes, or touches source, and the only volume it ever removes is the workspace's own `linux-caches` (via `clear-caches`, identity-verified).
-`remove-runtime`/`recreate` refuse Compose projects whose name is not a
-Hestia workspace id, so they cannot be pointed at unrelated projects.
+All commands reject non-Hestia project names. `validate`, `start`, `recreate`
+and `clear-caches` check durable identity, Compose config and local image before
+mutation; a failed preflight leaves the existing runtime and caches alone.
+`remove-runtime` also checks durable identity. These checks do not promise
+recovery from a later Docker runtime failure.
 
 Limits: recreation interrupts running processes — finish active work first
 (`recreate` stops the workspace itself). Warm startup requires the image to
-be present locally; startup never downloads or installs (validate checks the
-image and tells you to build/pull explicitly). If the durable state directory
+be present locally; startup never downloads or installs (preflight tells you
+to build/pull explicitly). If the durable state directory
 is lost, the workspace regenerates its `identity.record` on the next
 generation; if a container disappears unexpectedly, `start` recreates it.
 Published-port conflict validation arrives with project services; the
@@ -91,10 +133,13 @@ against the pinned release digest. The provider policy
 (`agent/omp/config.yml`: every built-in provider disabled except bedrock,
 which uses the standard AWS credential chain) is baked root-owned at
 `/opt/hestia/omp/config.yml` — outside the writable state tree — and loaded
-as a config overlay via `PI_CONFIG_FILES`: omp merges overlays after the
-user's own config, so the policy wins every merge, and it refuses to start
-when a configured overlay is missing, so the policy is fail-closed (FA5H9TR).
-Generate with `--image hestia-agent:<tag>`.
+as a config overlay via `PI_CONFIG_FILES`. omp merges global → project →
+overlay → runtime overrides; a missing or malformed overlay fails startup.
+The overlay shadows user settings without breaking omp's atomic settings
+writes, unlike the superseded read-only bind over `~/.omp/agent/config.yml`.
+It is not a security boundary against control of the process environment or
+runtime overrides. Generate with `--image hestia-agent:<tag>` after explicitly
+building that tag with the `agent` target.
 
 omp's durable state — sessions (`--resume`), the `agent.db` database, its own
 `~/.omp/agent/config.yml` settings (model selection, theme), memory, logs and
@@ -104,36 +149,29 @@ binds from the workspace state directory
 survives stop/remove-runtime/recreate like all durable state; `clear-caches`
 never touches it.
 
-Authentication is the remaining manual step by design: with no AWS
-credentials, `omp -p …` fails with a clear, actionable error while the shell
-and source stay fully usable. Provide credentials at runtime through the AWS
-credential chain (for example a scoped profile exported into the attach
-session — never baked into images, Compose files or logs). Two per-container
-behaviors to know: `mise trust` of the mounted repository is required once
-per container (paranoid default; trust state is not persisted across
-recreation), and `~/.omp/natives` is extracted on first run into the state
-directory.
+Real AWS credential-chain authentication, agent-assisted work and native
+session resume remain unverified; persisted settings/database/marker checks
+are not that acceptance. Without AWS credentials, omp reports missing auth
+while shell/source remain usable. Supply scoped credentials and any required
+region/profile at runtime, separately from the image and generated Compose;
+a profile name alone does not supply credentials inside the container. Git
+authentication is separate. Never put credential values in images, generated
+Compose, tracked files or logs; environment-supplied secrets are not hidden
+from container inspection. `mise trust` is required per container and after
+config changes; `~/.omp/natives` is extracted on first use into durable state.
 
 ## Limits
 
 One writer per checkout at a time: host and container share the working tree
 and index (ADR-001). Worktrees share Git metadata and are not mutually
 untrusted boundaries. Full concurrent worktree workloads follow in
-Milestone 3; persistent state mounts and lifecycle behavior are separate
-tickets.
+Milestone 3. Persistence and lifecycle are implemented, not concurrency proof.
 
 ## Verified
 
-2026-09-09, macOS 25.6.0 arm64 (Docker server 29.5.2, fixture-tools image):
-`tests/workspace-mounts.test.sh` passed 29/29,
-`tests/workspace-lifecycle.test.sh` 14/14 and
-`tests/workspace-cache-clear.test.sh` 10/10, `tests/workspace-agent.test.sh` 16/16
-on the agent image — including host/container
-status agreement, edits visible in both directions, staging inside containers
-for both worktree link layouts without pointer changes, no sibling source or
-Docker socket visible, out-of-bind paths invisible, clear no-mutation
-failures, a real in-container `go build`/`go test` on mounted source that
-leaves the tree byte-identical (artifacts only in the cache volume), a native
-host build on the same source with the same result, unwritable-state and
-state-mismatch rejections. Fixtures must live on Docker-shared paths on macOS (home, not
-`/tmp`, which mounts empty — see the [evidence log](../docs/evidence.md)).
+The [evidence log](../docs/evidence.md) records macOS arm64 fixture builds,
+mount/write/worktree checks, lifecycle/cache preservation and omp
+state/settings/overlay checks, including later review fixes. These are not
+real AWS authentication or native-session-resume evidence. Fixtures must live
+on Docker-shared paths on macOS (home, not the unshared `/tmp` path observed
+in the recorded runtime). No broader platform support is established.
