@@ -36,7 +36,7 @@ dc() { docker compose -p "$project" -f "$root/ws.yml" "$@"; }
 attach="$here/workspace/workspace-attach-litellm.sh"
 {
 	echo "tested-head: $(git -C "$here" rev-parse HEAD)"
-	shasum -a 256 "$attach" "$here/tests/workspace-litellm.test.sh" "$here/tests/litellm-stub.go" "$here/Dockerfile"
+	shasum -a 256 "$attach" "$here/tests/workspace-litellm.test.sh" "$here/tests/litellm-stub.go" "$here/agent/omp/litellm-session.sh" "$here/Dockerfile"
 	sw_vers 2>/dev/null || true
 	uname -srm
 	docker version --format 'client: {{.Client.Version}} server: {{.Server.Version}}'
@@ -51,6 +51,7 @@ dc exec -d workspace /tmp/hestia-litellm-stub
 port="$(dc exec -T workspace bash -c 'for i in {1..30}; do if test -s /tmp/hestia-litellm-stub.port; then cat /tmp/hestia-litellm-stub.port; exit 0; fi; sleep 0.1; done; exit 1')" || fail 'localhost stub not ready'
 endpoint="http://127.0.0.1:$port/v1"
 model=hestia-opaque-model-7e4/sub:exact
+trace_id=11111111-2222-4333-8444-555555555555
 unset LITELLM_API_KEY LITELLM_BASE_URL
 if "$attach" --endpoint "$endpoint" --model "$model" --no-tty "$root/ws.yml" --version >"$root/missing.log" 2>&1; then fail 'missing key accepted'; fi
 grep -q 'export a scoped nonempty LITELLM_API_KEY' "$root/missing.log" || fail 'missing key error not actionable'
@@ -65,27 +66,42 @@ for invalid in '-bad' 'bad model' $'valid\nsecond'; do
 	if "$attach" --endpoint "$endpoint" --model "$invalid" --no-tty "$root/ws.yml" --version >"$root/model-error.log" 2>&1; then fail 'invalid model accepted'; fi
 done
 ok 'model rejects option-like IDs, whitespace and line breaks'
+for invalid in HESTIA_FAKE_TRACE '-bad' '11111111-2222-4333-8444-55555555555' $'11111111-2222-4333-8444-555555555555\nsecond'; do
+    if "$attach" --endpoint "$endpoint" --model "$model" --trace-id "$invalid" --no-tty "$root/ws.yml" --version >"$root/trace-id-error.log" 2>&1; then fail 'invalid trace ID accepted'; fi
+    grep -q 'trace ID must be a UUID' "$root/trace-id-error.log" || fail 'trace ID error not actionable'
+    if grep -q HESTIA_FAKE_ "$root/trace-id-error.log"; then fail 'invalid trace value printed'; fi
+done
+ok 'explicit trace ID rejects malformed/multiline values without printing them'
+clean_transient() {
+    dc exec -T workspace bash -c 'test ! -e "$HOME/.omp/agent/models.yml" && test ! -L "$HOME/.omp/agent/models.yml" && test ! -e "$HOME/.omp/agent/.hestia-litellm.lock" && test -z "$(find /tmp -maxdepth 1 -type d -name "hestia-litellm.*" -print -quit)"' || fail 'owned transient config or lock remained'
+}
 # Exercise real cold native lookup and a completed response using only a fake
 # key and opaque model ID on a disposable in-container loopback stub.
 dc exec -T workspace bash -c 'test ! -e "$HOME/.omp/agent" && test -z "$(find "$HOME/.omp" -name models.db -print -quit)"' || fail 'native discovery cache already exists'
 
-"$attach" --endpoint "$endpoint" --model "$model" --no-tty "$root/ws.yml" \
+"$attach" --endpoint "$endpoint" --model "$model" --trace-id "$trace_id" --no-tty "$root/ws.yml" \
     --no-session --no-tools --no-extensions --no-skills --no-lsp --no-title --max-time 45s -p 'Reply with the fixed local test response.' >"$root/cold-native.log" 2>&1 || fail 'cold native localhost completion failed'
 grep -q HESTIA_LOCAL_STUB_OK "$root/cold-native.log" || fail 'completed localhost response missing'
 dc exec -T workspace cat /tmp/hestia-litellm-stub.log >"$root/stub-requests.log"
-grep -qx 'POST /v1/chat/completions model=true auth=true tools=0 stream=true' "$root/stub-requests.log" || fail 'native completion did not use exact opaque ID, fake auth and zero tools'
+grep -qx 'GET /model_group/info auth=true trace=true traceExact=true' "$root/stub-requests.log" || fail 'native discovery missed explicit trace header'
+grep -qx 'POST /v1/chat/completions model=true auth=true trace=true traceExact=true tools=0 stream=true' "$root/stub-requests.log" || fail 'native completion missed exact ID, fake auth, trace or zero tools'
+clean_transient
 dc exec -T workspace bash -c 'test -z "$(find "$HOME/.omp" -name "*.jsonl" -print -quit)"' || fail 'no-session probe persisted a native session'
-ok 'cold empty-cache native LiteLLM lookup completes opaque-model localhost response with fake key and no tools or saved session'
+ok 'cold native discovery/completion receive explicit trace UUID with fake key, no tools/session and transient cleanup'
 
 
 "$attach" --endpoint "$endpoint" --model "$model" --no-tty "$root/ws.yml" --version >"$root/native-version.log" 2>&1 || fail 'native version invocation failed'
 grep -Eq '^(omp/)?18[.]1[.]16$' "$root/native-version.log" || fail 'wrong native version'
-ok 'native omp version executes through opted-in attach without inference'
+dc exec -T workspace cat /tmp/hestia-litellm-stub.log >"$root/default-trace-requests.log"
+grep -q '^GET .* auth=true trace=true traceExact=false$' "$root/default-trace-requests.log" || fail 'default handoff missed generated valid UUID'
+clean_transient
+ok 'native version uses generated trace UUID and cleans transient configuration without inference'
 if "$attach" --endpoint "$endpoint" --model HESTIA_FAKE_UNAVAILABLE_ID --no-tty "$root/ws.yml" -p 'No completion expected.' >"$root/unavailable-model.log" 2>&1; then fail 'unavailable exact ID accepted'; fi
 grep -q 'exact selected model unavailable' "$root/unavailable-model.log" || fail 'unavailable model error not bounded'
 if grep -q HESTIA_FAKE_ "$root/unavailable-model.log"; then fail 'unavailable model value printed'; fi
 [ "$(dc exec -T workspace grep -c '^POST ' /tmp/hestia-litellm-stub.log)" = 1 ] || fail 'unavailable exact ID reached inference'
-ok 'unavailable exact model ID rejects after native discovery without starting inference or printing values'
+clean_transient
+ok 'unavailable exact ID rejects after traced discovery, cleans config and starts no inference or value output'
 bash -x "$attach" --endpoint "$endpoint" --model "$model" --no-tty "$root/ws.yml" --version >"$root/trace.log" 2>&1 || fail 'traced caller failed'
 if grep -q HESTIA_FAKE_ "$root/trace.log"; then fail 'secret in enabled trace'; fi
 ok 'caller-enabled trace suppressed before secret access'
@@ -99,12 +115,12 @@ set -euo pipefail
 printf '%s\n' "$@" >>"$LITELLM_TEST_ARGS"
 args=("$@")
 for ((i=0; i<${#args[@]}-1; i++)); do
-	if [ "${args[$i]}" = workspace ] && [ "${args[$((i+1))]}" = omp ]; then
-        if [ "${args[$((i+2))]}" = models ]; then exec "$LITELLM_TEST_DOCKER" "$@"; fi
+	if [ "${args[$i]}" = workspace ] && [ "${args[$((i+1))]}" = bash ] && [ "${args[$((i+2))]:-}" = /opt/hestia/omp/litellm-session.sh ]; then
 		exec "$LITELLM_TEST_DOCKER" "${args[@]:0:$((i+1))}" bash -c '
 			test "$LITELLM_API_KEY" = HESTIA_FAKE_LITELLM_KEY &&
 			[[ "$LITELLM_BASE_URL" = http://127.0.0.1:*/v1 ]] &&
 			test "$PI_CONFIG_FILES" = /opt/hestia/omp/litellm.yml &&
+			test "$HESTIA_LITELLM_TRACE_ID" = 11111111-2222-4333-8444-555555555555 &&
 			test -z "${AWS_ACCESS_KEY_ID:-}" &&
 			test -z "${OPENAI_API_KEY:-}" &&
 			echo selected-durable-marker >/home/dev/.omp/handoff-marker'
@@ -116,20 +132,73 @@ chmod +x "$root/bin/docker"
 export LITELLM_TEST_DOCKER="$real_docker"
 PATH="$root/bin:$PATH" LITELLM_TEST_ARGS="$root/args.log" \
 	AWS_ACCESS_KEY_ID=HESTIA_FAKE_UNRELATED_AWS OPENAI_API_KEY=HESTIA_FAKE_UNRELATED_OPENAI \
-	"$attach" --endpoint "$endpoint" --model "$model" --no-tty "$root/ws.yml" --resume fixture-session >"$root/probe.log" 2>&1 || fail 'synthetic session environment forwarding failed'
-ok 'real exec session receives endpoint/key/overlay and no unrelated host provider keys'
-if grep -q 'HESTIA_FAKE_\|http://127.0.0.1' "$root/args.log"; then fail 'endpoint/key value in Docker argv'; fi
-ok 'Docker argv forwards names, never endpoint/key values'
+	"$attach" --endpoint "$endpoint" --model "$model" --trace-id "$trace_id" --no-tty "$root/ws.yml" --resume fixture-session >"$root/probe.log" 2>&1 || fail 'synthetic session environment forwarding failed'
+ok 'real exec session receives endpoint/key/trace/overlay and no unrelated host provider keys'
+if grep -q 'HESTIA_FAKE_\|http://127.0.0.1' "$root/args.log" || grep -q "$trace_id" "$root/args.log"; then fail 'endpoint/key/trace value in Docker argv'; fi
+ok 'Docker argv forwards names, never endpoint/key/trace values'
 python3 - "$root/args.log" "$model" <<'PY'
 import pathlib, sys
 args = pathlib.Path(sys.argv[1]).read_text().splitlines()
-start = max(i for i, arg in enumerate(args) if arg == "omp")
-model = sys.argv[2]
-assert args[start:] == ["omp", "--no-extensions", "--model", "litellm/" + model,
-                       "--smol", "litellm/" + model, "--slow", "litellm/" + model,
-                       "--resume", "fixture-session"], args[start:]
+start = max(i for i, arg in enumerate(args) if arg == "/opt/hestia/omp/litellm-session.sh")
+assert args[start - 1:] == ["bash", "/opt/hestia/omp/litellm-session.sh", sys.argv[2],
+                          "--resume", "fixture-session"], args[start - 1:]
+assert args[start - 3:start - 1] == ["HESTIA_LITELLM_TRACE_ID", "workspace"]
 PY
-ok 'exact caller model and native resume arguments reach qualified model/smol/slow roles'
+ok 'exact caller model/resume reach image wrapper with bare trace environment'
+# Exercise real image wrapper ownership/status/argv with test-owned omp, no HTTP.
+cat >"$root/omp-probe" <<'SH_PROBE'
+#!/usr/bin/env bash
+set -euo pipefail
+jq -e '.providers.litellm | .baseUrl == env.LITELLM_BASE_URL and .api == "openai-completions" and .discovery.type == "litellm" and .headers == {"x-litellm-trace-id":"HESTIA_LITELLM_TRACE_ID"} and (.apiKey == "LITELLM_API_KEY") and (.authHeader == true) and (has("models") | not)' "$HOME/.omp/agent/models.yml" >/dev/null
+if grep -q HESTIA_FAKE_LITELLM_KEY "$HOME/.omp/agent/models.yml"; then exit 91; fi
+if [ "$1" = models ]; then
+    printf '%s\n' "$@" >/tmp/hestia-native-probe/discovery-args
+    printf '{"models":[{"provider":"litellm","id":"hestia-opaque-model-7e4/sub:exact"}]}\n'
+    exit 0
+fi
+printf '%s\n' "$@" >/tmp/hestia-native-probe/native-args
+case "$HESTIA_WRAPPER_PROBE_ACTION" in
+    fail) exit 42 ;;
+    signal) kill -TERM "$PPID"; exit 0 ;;
+    replace) rm "$HOME/.omp/agent/models.yml"; printf 'HESTIA_REPLACEMENT_NATIVE_CONFIG\n' >"$HOME/.omp/agent/models.yml" ;;
+esac
+SH_PROBE
+dc exec -T workspace bash -c 'mkdir -p /tmp/hestia-native-probe; cat >/tmp/hestia-native-probe/omp; chmod 0700 /tmp/hestia-native-probe/omp' <"$root/omp-probe"
+probe_wrapper() {
+    local action="$1"; shift
+    LITELLM_BASE_URL="$endpoint" HESTIA_LITELLM_TRACE_ID="$trace_id" HESTIA_WRAPPER_PROBE_ACTION="$action" \
+        dc exec -T -e LITELLM_API_KEY -e LITELLM_BASE_URL -e HESTIA_LITELLM_TRACE_ID -e HESTIA_WRAPPER_PROBE_ACTION \
+        -e PATH=/tmp/hestia-native-probe:/usr/local/bin:/usr/bin:/bin workspace \
+        bash /opt/hestia/omp/litellm-session.sh "$model" "$@"
+}
+probe_wrapper ok --resume fixture-session >"$root/wrapper-probe.log" 2>&1 || fail 'wrapper probe failed'
+dc exec -T workspace cat /tmp/hestia-native-probe/discovery-args >"$root/discovery-args.log"
+dc exec -T workspace cat /tmp/hestia-native-probe/native-args >"$root/native-args.log"
+python3 - "$root" "$model" <<'PY_WRAPPER'
+import pathlib, sys
+root = pathlib.Path(sys.argv[1]); model = "litellm/" + sys.argv[2]
+assert (root / "discovery-args.log").read_text().splitlines() == ["models", "litellm", "--json", "--no-extensions"]
+assert (root / "native-args.log").read_text().splitlines() == ["--no-extensions", "--model", model,
+    "--smol", model, "--slow", model, "--resume", "fixture-session"]
+PY_WRAPPER
+clean_transient
+ok 'wrapper keeps env-reference-only config during native commands and launches qualified exact roles/resume'
+for action in fail signal; do
+    if probe_wrapper "$action" --version >"$root/wrapper-$action.log" 2>&1; then fail 'wrapper lost failure/signal status'; else status=$?; fi
+    if [ "$action" = fail ]; then [ "$status" = 42 ] || fail 'native exit status changed'; else [ "$status" = 143 ] || fail 'caught TERM status changed'; fi
+    clean_transient
+done
+ok 'native failure/caught TERM preserve status and clean owned config/lock'
+dc exec -T workspace bash -c 'mkdir "$HOME/.omp/agent/.hestia-litellm.lock"; printf "HESTIA_OTHER_HANDOFF\n" >"$HOME/.omp/agent/.hestia-litellm.lock/owner"; rm /tmp/hestia-native-probe/native-args'
+if probe_wrapper ok --version >"$root/concurrent-wrapper.log" 2>&1; then fail 'concurrent handoff accepted'; fi
+grep -q 'another or interrupted LiteLLM handoff owns scoped state' "$root/concurrent-wrapper.log" || fail 'concurrent error not actionable'
+dc exec -T workspace bash -c 'set -e; grep -qx HESTIA_OTHER_HANDOFF "$HOME/.omp/agent/.hestia-litellm.lock/owner"; test ! -e "$HOME/.omp/agent/models.yml"; test ! -e /tmp/hestia-native-probe/native-args; rm "$HOME/.omp/agent/.hestia-litellm.lock/owner"; rmdir "$HOME/.omp/agent/.hestia-litellm.lock"' || fail 'concurrent guard touched owner or ran native inference'
+clean_transient
+ok 'concurrent wrapper rejects before native execution and preserves another lock'
+probe_wrapper replace --version >"$root/replaced-config.log" 2>&1 || fail 'replacement probe failed'
+dc exec -T workspace bash -c 'set -e; grep -qx HESTIA_REPLACEMENT_NATIVE_CONFIG "$HOME/.omp/agent/models.yml"; test ! -e "$HOME/.omp/agent/.hestia-litellm.lock"; rm "$HOME/.omp/agent/models.yml"' || fail 'cleanup removed replacement native file'
+clean_transient
+ok 'cleanup preserves a replacement native configuration file'
 # Every default model filename must reject before a credential
 # environment exec. Files are test-owned sentinels, not parsed or rewritten.
 for conflict in agent/models.yml agent/models.yaml agent/models.json; do
@@ -258,7 +327,7 @@ assert sum(r.get("message", {}).get("role") == "assistant" for r in records) == 
 PY_SESSION
 ok 'ordinary native database allows real synthetic saved-session creation and exact JSONL resume with two completed responses'
 
-dc exec -T workspace bash -c 'test -z "${LITELLM_API_KEY:-}" && test -z "${LITELLM_BASE_URL:-}" && test "$PI_CONFIG_FILES" = /opt/hestia/omp/config.yml' || fail 'credentials or overlay leaked into a separate attach'
+dc exec -T workspace bash -c 'test -z "${LITELLM_API_KEY:-}" && test -z "${LITELLM_BASE_URL:-}" && test -z "${HESTIA_LITELLM_TRACE_ID:-}" && test "$PI_CONFIG_FILES" = /opt/hestia/omp/config.yml' || fail 'credentials or overlay leaked into a separate attach'
 ok 'separate attach retains default overlay and receives no LiteLLM credentials'
 dc exec -T -e PI_CONFIG_FILES=/opt/hestia/omp/litellm.yml workspace omp config get disabledProviders >"$root/litellm-providers.json"
 dc exec -T workspace omp config get disabledProviders >"$root/default-providers.json"
