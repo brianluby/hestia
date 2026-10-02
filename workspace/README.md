@@ -212,6 +212,34 @@ that built-in provider and skips pinned onboarding; ordinary attaches retain
 the default Bedrock overlay. No host models.yml, auth database or home is
 copied or mounted. Permission/session controls remain native.
 
+This helper supports the default scoped omp profile with extensions disabled.
+It rejects caller routing, model-role, profile, storage, config-overlay,
+extension and hook overrides; native permission controls and `--resume` remain
+available. Default `~/.omp/agent/models.yml`, fallback `models.yaml`, or legacy
+`models.json` can replace the endpoint/auth/headers, so their presence is
+rejected before key forwarding. Symlinked native storage, ambient profile/XDG
+redirection, broker environment selection, and known project/agent/config-root/
+home `.env` / `.env.*` files are also unsupported. Files are preserved.
+
+Host Python 3 with standard-library SQLite and Ruby with standard-library
+Psych are required; nothing is installed by the helper. Read-only SQLite
+metadata checks reject active stored LiteLLM auth, unknown/corrupt schema,
+legacy `auth.json`, and nonempty legacy settings when native global YAML is
+absent. Safe YAML/plain JSON checks reject a nested or dotted broker URL key
+in default global/project native settings, without inspecting credential
+values or reporting file contents. YAML aliases/tags and JSONC are unsupported
+by this bounded guard. Ordinary native session/settings databases and safe
+appearance preferences remain usable. Use fresh default scoped workspace state
+or deliberately resolve the conflicting native configuration yourself before
+retrying; do not change routing configuration concurrently with handoff.
+
+Every attach then runs native `omp models litellm --json --no-extensions` with
+the selected endpoint/key, requires the exact model ID, and launches qualified
+main/small/slow roles. This can contact the selected endpoint for discovery
+when its native cache is absent or stale; raw discovery payloads/errors are
+suppressed. The guards do not modify state. Subsequent native discovery and
+omp normally initialize/update their own settings, database and model caches.
+
 Each attach/recreation needs another explicit handoff; revoke/refresh the key
 through its existing provider. Runtime environment remains visible to the
 agent and privileged inspection. The helper does not prove that every
