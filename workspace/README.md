@@ -152,13 +152,43 @@ never touches it.
 Real AWS credential-chain authentication, agent-assisted work and native
 session resume remain unverified; persisted settings/database/marker checks
 are not that acceptance. Without AWS credentials, omp reports missing auth
-while shell/source remain usable. Supply scoped credentials and any required
-region/profile at runtime, separately from the image and generated Compose;
-a profile name alone does not supply credentials inside the container. Git
-authentication is separate. Never put credential values in images, generated
-Compose, tracked files or logs; environment-supplied secrets are not hidden
-from container inspection. `mise trust` is required per container and after
-config changes; `~/.omp/natives` is extracted on first use into durable state.
+while shell/source remain usable. Git authentication is separate.
+`mise trust` is required per container and after config changes;
+`~/.omp/natives` is extracted on first use into durable state.
+
+### Opt-in temporary AWS handoff
+
+After starting the workspace, use one explicit host command:
+
+```sh
+# Resolve a scoped temporary profile on the HOST (AWS CLI v2 and jq required).
+# Refresh SSO on the host first if needed: aws sso login --profile <profile>.
+workspace/workspace-attach-aws.sh --profile <profile> --region us-west-2 <file>
+# Or forward an already exported temporary host session and region.
+workspace/workspace-attach-aws.sh --env <file>
+```
+
+This opens Bash by default; append `omp` or another command to run it directly.
+For scripts, add `--no-tty` before `<file>`. The region can come from the
+profile, `--region`, or (with `--env`) `AWS_REGION`/`AWS_DEFAULT_REGION`.
+The helper requires access key, secret key and session token, forwards only
+those and the region to `compose exec`, and keeps values out of command
+arguments. It uses the AWS CLI's supported
+[process JSON export](https://docs.aws.amazon.com/cli/latest/reference/configure/export-credentials.html),
+without evaluating shell text. Credentials are never written by the helper
+to Compose, images, state or a file; the helper disables its own shell trace
+and suppresses credential-provider error output.
+
+Only the new exec process and its children receive this environment; each
+attach and recreation requires another explicit handoff. Expired auth needs
+a host refresh/export and a new attach. The helper does not mount `~/.aws`,
+forward `AWS_PROFILE`, switch to Bedrock bearer keys or install AWS tools in
+the image. Runtime environment secrets remain accessible to the agent and
+privileged Docker/process inspection. Commands run in that session can write
+or print their environment: keep shell tracing, `env` dumps and credential
+logging off, and do not save credentials in omp settings or agent responses.
+Synthetic handoff coverage is in [workspace-aws.test.sh](../tests/workspace-aws.test.sh);
+it does not establish authenticated Bedrock inference.
 
 ## Limits
 
