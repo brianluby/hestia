@@ -180,4 +180,5 @@ RUN sed '/^#/d; /^  - "litellm"$/d; /^setupVersion:/d; s/^disabledProviders:$/di
       /opt/hestia/omp/config.yml > /opt/hestia/omp/litellm.yml \
  && printf 'setupVersion: 2\n' >> /opt/hestia/omp/litellm.yml \
  && chmod 0644 /opt/hestia/omp/litellm.yml
+COPY agent/omp/litellm-session.sh /opt/hestia/omp/litellm-session.sh
 USER dev
