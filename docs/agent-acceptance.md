@@ -1,12 +1,13 @@
 # XJVWF4K: remaining native agent acceptance
 
-[Workspace workflow](../workspace/README.md) · [Current regression evidence](aws-handoff-evidence.md)
+[Workspace workflow](../workspace/README.md) · [AWS regression evidence](aws-handoff-evidence.md) · [LiteLLM handoff evidence](litellm-handoff-evidence.md)
 
 The optional omp layer and writable scoped state already exist. Native
 regressions passed 24/24 on 2026-10-02; real authentication, an agent-assisted
 change and native resume remain pending. The user has authorized a local
-LiteLLM model instead of Bedrock for this remaining acceptance; the scoped
-runtime key source and exact model must be supplied before calling it.
+LiteLLM model instead of Bedrock for this remaining acceptance. A runtime
+key has been supplied; explicit authorization of its destination and discovery
+of an exact available local model remain pending before authenticated calls.
 Use only a fresh synthetic fixture, never employer source. Keep credentials
 and raw sessions/provider responses out of evidence.
 
