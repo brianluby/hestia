@@ -35,7 +35,7 @@ declare no project services or ports; Docker inspection confirmed no published
 or exposed ports. Port-conflict handling was not exercised.
 
 Local receipt root:
-`/Users/bluby/.cache/hestia-concurrency-tests/hestia-concurrency-Q5oSCgPi`.
+`~/.cache/hestia-concurrency-tests/hestia-concurrency-Q5oSCgPi`.
 It contains generated Compose, identities, container IDs/inspection, build logs,
 source/Git snapshots and environment/results. Both containers, networks and
 test-owned cache volumes were removed; synthetic source/state receipts remain.
@@ -57,6 +57,19 @@ This avoids observer writes to the shared index, rather than adding a delay to
 hide a mismatch. Keep one writer per checkout and finish metadata operations
 before handing work between host and container tools. The initial receipt and
 probe are retained at
-`/Users/bluby/.cache/hestia-concurrency-tests/hestia-concurrency-JK0gHgtP`.
+`~/.cache/hestia-concurrency-tests/hestia-concurrency-JK0gHgtP`.
 Synthetic agent markers establish state scoping only; no authenticated model
 call, native session or session resume was run.
+
+## Review correction verification
+
+At implementation commit `7ce22ae`, the isolation suite again passed 21/21,
+exit 0, no SKIP; receipts are retained at
+`~/.cache/hestia-concurrency-tests/hestia-concurrency-19cOXKjc`.
+The suite now explicitly checks Python before runtime work and preserves
+diagnostics on an early setup failure even before a check increments its
+failure counter. A controlled missing-Python probe reported SKIP correctly
+(this negative prerequisite check is not a runtime acceptance run). A mocked
+pre-start failure exited 75 and retained its start log without needing
+`KEEP_ARTIFACTS`; receipt ID `hestia-concurrency-S2NZ2Kve`. No additional
+project/provider/platform support is claimed.
