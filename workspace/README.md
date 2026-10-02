@@ -162,9 +162,9 @@ binds from the workspace state directory
 survives stop/remove-runtime/recreate like all durable state; `clear-caches`
 never touches it.
 
-Real AWS credential-chain authentication, agent-assisted work and native
-session resume remain unverified; persisted settings/database/marker checks
-are not that acceptance. Without AWS credentials, omp reports missing auth
+Real AWS/Bedrock credential-chain authentication remains unverified. The
+[LiteLLM fixture proof](../docs/m1-apple-silicon-evidence-v2.md) verifies real
+assisted work and native saved-session resume. Without AWS credentials, omp reports missing auth
 while shell/source remain usable. Git authentication is separate.
 `mise trust` is required per container and after config changes;
 `~/.omp/natives` is extracted on first use into durable state.
@@ -219,7 +219,8 @@ workspace/workspace-attach-litellm.sh --endpoint <URL> --model <ID> <file> --res
 This invokes native omp directly. For scripted native `-p` work, add both
 `--no-tty` and `--no-stdin` before `<file>`: the former disables TTY allocation,
 while the latter closes container stdin so native print mode receives EOF.
-Without `--no-stdin`, non-TTY print mode reads stdin until EOF before startup. The helper requires a nonempty key, forwards key/endpoint/trace and
+Without `--no-stdin`, non-TTY print mode reads stdin until EOF before startup.
+The helper requires a nonempty key, forwards key/endpoint/trace and
 selected policy environment to that exec, and selects exact LiteLLM
 main/small/slow roles. It generates a fresh UUID for the required
 `x-litellm-trace-id` header unless `--trace-id` supplies one. Values stay out
@@ -255,10 +256,14 @@ After these read-only guards, the image-owned wrapper exclusively locks the
 default agent directory and temporarily publishes its own `models.yml`
 symlink to a private container `/tmp` file. This native configuration declares
 only the existing LiteLLM provider, selected endpoint, generic OpenAI
-`/models` discovery with the Chat Completions API, and environment-name references; it defines no custom models or credential value.
+`/models` discovery with the Chat Completions API, and environment-name
+references; it defines no custom models or credential value.
 Discovery preserves the advertised exact IDs and the explicit Chat Completions
 route; it does not infer a Responses route from rich LiteLLM management metadata.
-Discovery and inference receive the trace header; the key remains in the process environment.
+Discovery and inference receive the trace header; the key remains in the
+process environment. When `/models` omits metadata, omp uses its upstream
+catalog or defaults for context/output limits and capabilities. These SDK
+assumptions do not qualify the backend's limits or capabilities.
 
 Every attach runs native `omp models litellm --json --no-extensions`, requires
 the exact model ID, and launches qualified main/small/slow roles. Raw discovery
@@ -273,7 +278,8 @@ never overwritten.
 Each attach/recreation needs another explicit handoff; revoke/refresh the key
 through its existing provider. Runtime environment remains visible to the
 agent and privileged inspection. The helper does not prove that every
-OpenAI-compatible server/model implements Chat Completions. Verify real inference and explicit native resume for the selected
+OpenAI-compatible server/model implements Chat Completions. Verify real
+inference and explicit native resume for the selected
 endpoint/model before closing agent acceptance; synthetic plumbing does not
 satisfy those criteria.
 
@@ -288,7 +294,9 @@ Milestone 3. Persistence and lifecycle are implemented, not concurrency proof.
 
 The [evidence log](../docs/evidence.md) records macOS arm64 fixture builds,
 mount/write/worktree checks, lifecycle/cache preservation and omp
-state/settings/overlay checks, including later review fixes. These are not
-real AWS authentication or native-session-resume evidence. Fixtures must live
+state/settings/overlay checks, including later review fixes. The
+[native LiteLLM fixture proof](../docs/m1-apple-silicon-evidence-v2.md) verifies
+real assisted edits and saved-session resume after recreation. Bedrock
+authentication remains unverified. Fixtures must live
 on Docker-shared paths on macOS (home, not the unshared `/tmp` path observed
 in the recorded runtime). No broader platform support is established.

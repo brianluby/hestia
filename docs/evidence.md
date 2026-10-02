@@ -8,15 +8,23 @@ live in the spec, not here.
 
 | ID | Status | Evidence |
 | --- | --- | --- |
-| M1-01 | partial | Base image and fixture-toolchain layer verified (below): canonical Dockerfile with named stages, pinned inputs, non-root, offline startup, real fixture build/test in-container. Selected agent layer remains (blocked on `TG7VZBV`). |
-| M1-02 | partial | Scoped mounts verified (below): identical-path source bind, metadata-only worktree bind, no socket/home exposure, host/container agreement. Persistent state mounts and concurrency follow (`KSCDG1J`, `24GJSHY`). |
-| M1-03 | pass (fixture scope) | Non-root writes, artifact separation and cache/state classification verified (below). Agent-state mounts remain (`XJVWF4K`). |
-| M1-04 | partial | Identity helper verified with 16/16 tests on 2026-09-09 ([identity](../identity/README.md)); container-resource usage pending. |
-| M1-05 | partial | Absolute and relative worktree links resolve in-container; stage/diff without pointer rewriting verified (below). Unsupported layouts fail clearly. Full concurrent workloads follow in Milestone 3. |
-| M1-06 | partial | Lifecycle verified for fixture scope (below): stop/start, remove-runtime, recreate with a different container ID, durable state/source/Git/cache preservation, build/tests passing again. Selected agent-state resumption is M1-07. |
-| M1-07 | not run | Blocked on the human agent decision (`TG7VZBV`). |
-| M1-08 | pass (fixture scope) | Scoped cache clearing verified (below): only the workspace cache volume removed, durable state and source/Git unchanged, caches regenerate, build/tests pass again. |
-| M1-09 | partial | Failed-download behavior, missing-tool errors and trust gating verified for the image (below); other failure classes pending. |
+| M1-01 | pass (fixture scope) | Final canonical agent image, integrity checks and actual build/tests: [successor receipt](m1-apple-silicon-evidence-v2.md). |
+| M1-02 | pass (fixture scope) | Scoped mounts and host/container edits; historical mount suite and final native edit visibility in the successor receipt. |
+| M1-03 | pass (fixture scope) | Non-root writes, artifact separation and scoped native-state persistence. |
+| M1-04 | pass (fixture scope) | Historical 19/19 identity checks; final project identity retained through recreation. |
+| M1-05 | pass (fixture scope) | Historical 31/31 mount checks with absolute/relative worktree staging; full concurrency has separate acceptance. |
+| M1-06 | pass (fixture scope) | New container IDs, exact source/Git/index and selected native-state equality before resumed work; repeated build/tests. |
+| M1-07 | pass (LiteLLM fixture) | Real authenticated native omp edits, explicit saved JSONL resume and recalled context. Bedrock remains unverified. |
+| M1-08 | pass (fixture scope) | Scoped own-cache clearing/regeneration and durable source/Git/state preservation in the historical receipt. |
+| M1-09 | pass (applicable fixture cases) | Recorded source/metadata/state/identity/tool/download failures plus real denied auth and fresh-handoff recovery. No published ports; actual expiry/automatic refresh not tested. |
+
+Current Apple Silicon M1A acceptance is recorded in the
+[native LiteLLM successor receipt](m1-apple-silicon-evidence-v2.md) and
+[result JSON](m1-apple-silicon-result-v2.json). The
+[earlier partial receipt](m1-apple-silicon-evidence.md) remains unchanged.
+Historical foundation 101/101 and final LiteLLM 34/34 stub checks are distinguished
+from real provider inference. Argus, Bedrock authentication and Windows/WSL2
+remain unverified; Milestone 1 is incomplete.
 
 ## Base image — 61Q7E8F, 2026-09-09
 
