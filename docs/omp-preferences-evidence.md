@@ -29,3 +29,29 @@ Source baseline: Hestia `a8fecc3`; omp `18.1.16`, release SHA-256
 The image marker and upstream wizard gate are verified. Real AWS inference,
 agent-assisted changes and native authenticated resume remain separate
 `XJVWF4K` acceptance. No Argus or Windows support is established here.
+
+## Explicit appearance copying (WF6TXF9)
+
+- `rtk env HESTIA_AGENT_TEST_IMAGE=hestia-agent:06174h1 bash tests/workspace-omp-preferences.test.sh`, exit 0, 12 passed / 0 failed.
+- The test used synthetic host configuration containing six selected appearance
+  leaves plus an excluded credential sentinel, an adjacent synthetic database,
+  session and custom-provider file. Only selected appearance values reached
+  workspace native settings; source SHA-256 stayed unchanged. Actual host
+  preferences and credentials were never read.
+- Existing native config stayed byte-identical on repeated import. Credential
+  keys and structured values were rejected. Existing legacy database state
+  prevented seeding. First-time import rejected a running workspace.
+- The pinned native parser loaded the copied JSON mapping as YAML. Effective
+  provider restrictions and first-run marker were preserved, native theme
+  writes worked, and config bytes/theme survived a changed container ID.
+- Independent read-only review identified a startup preservation race; the
+  final helper requires a stopped workspace and rechecks all protected native
+  paths before creation. Complete host/container agent writes before seeding.
+
+This is an appearance-only, opt-in creation helper. It does not resolve custom
+theme/extension files, model roles or custom-provider migration. Those require
+separate explicit choices. The native config CLI initializes settings inside
+the disposable reader's `/tmp` agent directory; isolation and the read-only
+single-file mount protect the host source. It is not a read-only native CLI
+operation against arbitrary agent state. Source references: [native config initialization](https://github.com/can1357/oh-my-pi/blob/61b1b8aef634334eaf1412afd003a763e1d1b9c1/packages/coding-agent/src/cli/config-cli.ts#L243-L264)
+and [native settings format/precedence](https://github.com/can1357/oh-my-pi/blob/61b1b8aef634334eaf1412afd003a763e1d1b9c1/docs/settings.md).
