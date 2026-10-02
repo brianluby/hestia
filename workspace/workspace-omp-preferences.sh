@@ -64,8 +64,9 @@ running="$(docker compose -p "$project" -f "$compose" ps -q --status running wor
 [ -z "$running" ] || fail "stop the workspace and finish all agent writes before first-time seeding"
 
 # Only this single source file is exposed to the one-shot reader. The global
-# agent directory and cwd are isolated /tmp locations; config get is upstream's
-# read-only path and does not open agent.db or perform legacy migrations.
+# agent directory and cwd are isolated /tmp locations. Native config get may
+# initialize its own settings/database there; the supplied host file stays
+# read-only and no host database or credential directory is exposed.
 # No host credentials, sessions, models.yml, or writable host home are mounted.
 records="$(docker run --rm --pull never --network none --workdir /tmp \
 	--mount "type=bind,source=$source_config,target=/opt/hestia-preferences.yml,readonly" \
