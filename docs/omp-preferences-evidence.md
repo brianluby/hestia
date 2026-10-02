@@ -50,5 +50,8 @@ agent-assisted changes and native authenticated resume remain separate
 
 This is an appearance-only, opt-in creation helper. It does not resolve custom
 theme/extension files, model roles or custom-provider migration. Those require
-separate explicit choices. Source references: [read-only settings loader](https://github.com/can1357/oh-my-pi/blob/61b1b8aef634334eaf1412afd003a763e1d1b9c1/packages/coding-agent/src/config/settings.ts#L588-L595)
+separate explicit choices. The native config CLI initializes settings inside
+the disposable reader's `/tmp` agent directory; isolation and the read-only
+single-file mount protect the host source. It is not a read-only native CLI
+operation against arbitrary agent state. Source references: [native config initialization](https://github.com/can1357/oh-my-pi/blob/61b1b8aef634334eaf1412afd003a763e1d1b9c1/packages/coding-agent/src/cli/config-cli.ts#L243-L264)
 and [native settings format/precedence](https://github.com/can1357/oh-my-pi/blob/61b1b8aef634334eaf1412afd003a763e1d1b9c1/docs/settings.md).
