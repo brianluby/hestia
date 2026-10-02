@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# CF62H3E — two concurrent repositories with matching basenames.
+# CF62H3E / 3B36AE6 — concurrency and isolated neighbor recreation.
+# usage: workspace-concurrency.test.sh [isolation|recreate]
 # Uses the canonical fixture image and generated Compose files. No credentials.
 # KEEP_ARTIFACTS=1 preserves synthetic source/state and receipts; Docker resources
 # are always removed. Missing runtime/image is SKIP, not acceptance.
@@ -7,6 +8,8 @@ set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 image="${HESTIA_TEST_IMAGE:-hestia-fixture-tools:2026-09-09}"
+mode="${1:-isolation}"
+[ "$#" -le 1 ] && { [ "$mode" = isolation ] || [ "$mode" = recreate ]; } || { echo "usage: $0 [isolation|recreate]" >&2; exit 2; }
 for prerequisite in docker git python3; do
 	command -v "$prerequisite" >/dev/null || { echo "SKIP: $prerequisite unavailable"; exit 0; }
 done
@@ -60,6 +63,10 @@ cleanup_resources() {
 # Preserve diagnostic receipts whenever the run fails or retention is requested.
 cleanup() {
 	local status=$?
+	if [ -n "${neighbor_pid:-}" ]; then
+		dc b exec -T workspace touch /tmp/neighbor-finish >/dev/null 2>&1 || true
+		wait "$neighbor_pid" >/dev/null 2>&1 || true
+	fi
 	cleanup_resources
 	if [ "$status" -ne 0 ] || [ "$fail" -gt 0 ] || [ "${KEEP_ARTIFACTS:-0}" = 1 ]; then
 		echo "receipts and synthetic durable fixtures: $root"
@@ -70,7 +77,8 @@ cleanup() {
 trap cleanup EXIT
 
 {
-	echo "suite: CF62H3E concurrent independent repositories"
+	echo "suite: CF62H3E / 3B36AE6 $mode"
+	shasum -a 256 "$here/tests/workspace-concurrency.test.sh"
 	echo "tested-head: $(git -C "$here" rev-parse HEAD)"
 	echo "host: $(uname -srm)"
 	sw_vers 2>/dev/null || true
@@ -170,6 +178,71 @@ fi
 for slot in a b; do
 	check "$slot durable snapshot unchanged after isolation probes" snapshot compare "$slot"
 done
+
+
+if [ "$mode" = recreate ]; then
+	echo "== recreate A while B completes useful build/test work =="
+	for slot in a b; do
+		state="$HESTIA_STATE_ROOT/$(sed -n 's/^name: //p' "$root/$slot.yml")"
+		(cd "$state" && find . -type f -exec shasum -a 256 {} + | sort) >"$root/$slot.state.before"
+		docker volume inspect --format '{{.CreatedAt}} {{.Mountpoint}}' "$(sed -n 's/^name: //p' "$root/$slot.yml")_linux-caches" >"$root/$slot.cache.before"
+	done
+	# The control/progress files are ephemeral in B; durable source/state
+	# receives no observer writes. Every progress event follows a real build
+	# and uncached Go test. The loop is bounded even if the host fails.
+	dc b exec -T workspace bash -c '
+		set -euo pipefail
+		for iteration in $(seq 1 120); do
+			go build ./...
+			go test -count=1 ./...
+			printf "%s build-test-success %s\n" "$(date -u +%s)" "$iteration" >>/tmp/neighbor-progress
+			[ ! -e /tmp/neighbor-finish ] || break
+		done
+	' >"$root/b.concurrent-builds.log" 2>&1 &
+	neighbor_pid=$!
+	ready=0
+	for attempt in 1 2 3 4 5 6 7 8 9 10; do
+		if dc b exec -T workspace test -s /tmp/neighbor-progress; then ready=1; break; fi
+		sleep 1
+	done
+	check "neighbor useful workload started" test "$ready" = 1
+	before_progress="$(dc b exec -T workspace sh -c 'wc -l </tmp/neighbor-progress')"
+	date -u +%s >"$root/recreate.started"
+	if "$here/workspace/workspace-lifecycle.sh" recreate "$root/a.yml" >"$root/a.recreate.log" 2>&1; then
+		ok "A recreation completes during B workload"
+	else
+		cat "$root/a.recreate.log"
+		bad "A recreation failed"
+	fi
+	date -u +%s >"$root/recreate.finished"
+	after_a="$(dc a ps -q workspace)"
+	after_b="$(dc b ps -q workspace)"
+	check "recreated A container identity changed" test "$after_a" != "$(cat "$root/a.cid")"
+	check "neighbor B container identity unchanged" test "$after_b" = "$(cat "$root/b.cid")"
+	check "neighbor workload still active after A recreation" kill -0 "$neighbor_pid"
+	after_progress="$(dc b exec -T workspace sh -c 'wc -l </tmp/neighbor-progress')"
+	check "neighbor completed build/tests within A recreation interval" test "$after_progress" -gt "$before_progress"
+	printf "success events before=%s after=%s\n" "$before_progress" "$after_progress" >"$root/neighbor-overlap.txt"
+	dc b exec -T workspace touch /tmp/neighbor-finish
+	if wait "$neighbor_pid"; then ok "neighbor concurrent build/test loop exits successfully"
+	else bad "neighbor concurrent build/test loop failed"
+	fi
+	dc b exec -T workspace cat /tmp/neighbor-progress >"$root/b.concurrent-progress"
+	neighbor_pid=""
+	check "recreated A builds/tests successfully" dc a exec -T workspace bash -c 'mise trust "$PWD" >/dev/null && go build ./... && go test -count=1 ./...'
+	for slot in a b; do
+		state="$HESTIA_STATE_ROOT/$(sed -n 's/^name: //p' "$root/$slot.yml")"
+		(cd "$state" && find . -type f -exec shasum -a 256 {} + | sort) >"$root/$slot.state.after"
+		check "$slot all selected durable state bytes unchanged" cmp "$root/$slot.state.before" "$root/$slot.state.after"
+		check "$slot source/index/HEAD/branch/untracked snapshot unchanged" snapshot compare "$slot"
+		docker volume inspect --format '{{.CreatedAt}} {{.Mountpoint}}' "$(sed -n 's/^name: //p' "$root/$slot.yml")_linux-caches" >"$root/$slot.cache.after"
+		check "$slot cache volume retains identity" cmp "$root/$slot.cache.before" "$root/$slot.cache.after"
+		dc "$slot" exec -T workspace env GIT_OPTIONAL_LOCKS=0 git status --porcelain=v2 --branch >"$root/$slot.final-status"
+		check "$slot final host/container Git status agrees" cmp "$root/$slot.snapshot/status.porcelain-v2" "$root/$slot.final-status"
+		docker inspect "$(dc "$slot" ps -q workspace)" >"$root/$slot.after.inspect.json"
+	done
+	check "B network identity retained" bash -c 'test "$(docker inspect -f "{{range .NetworkSettings.Networks}}{{.NetworkID}}{{end}}" "$1")" = "$2"' _ "$after_b" "$(python3 -c 'import json,sys; print(next(iter(json.load(open(sys.argv[1]))[0]["NetworkSettings"]["Networks"].values()))["NetworkID"])' "$root/b.inspect.json")"
+fi
 
 cleanup_resources
 for slot in a b; do
