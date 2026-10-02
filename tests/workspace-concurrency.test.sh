@@ -7,7 +7,7 @@ set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 image="${HESTIA_TEST_IMAGE:-hestia-fixture-tools:2026-09-09}"
-for prerequisite in docker git; do
+for prerequisite in docker git python3; do
 	command -v "$prerequisite" >/dev/null || { echo "SKIP: $prerequisite unavailable"; exit 0; }
 done
 docker info >/dev/null 2>&1 || { echo "SKIP: Docker daemon unavailable"; exit 0; }
@@ -53,8 +53,9 @@ cleanup_resources() {
 	done
 }
 cleanup() {
+	local status=$?
 	cleanup_resources
-	if [ "$fail" -gt 0 ] || [ "${KEEP_ARTIFACTS:-0}" = 1 ]; then
+	if [ "$status" -ne 0 ] || [ "$fail" -gt 0 ] || [ "${KEEP_ARTIFACTS:-0}" = 1 ]; then
 		echo "receipts and synthetic durable fixtures: $root"
 	else
 		rm -rf "$root"
