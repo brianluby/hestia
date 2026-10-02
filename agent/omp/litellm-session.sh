@@ -63,8 +63,11 @@ private="$(mktemp -d /tmp/hestia-litellm.XXXXXXXX)"
 config="$private/models.yml"
 # JSON is a YAML subset. jq reads only the validated endpoint from its process
 # environment; the trace header contains an env-name reference, never a value.
-# Native rich metadata supplies model APIs/capabilities/limits; no custom model
-# definitions or credential values are introduced. Native cache restoration
+# Generic OpenAI discovery retains the explicitly selected Chat Completions
+# API; LiteLLM rich metadata can select Responses for chat-only local servers.
+# Native advertised/reference/default metadata supplies limits; these are not
+# backend qualification. No custom definitions or credential values are
+# introduced. Native cache restoration
 # requires an explicit environment-name key reference plus authHeader.
 (set -C; jq -n '{providers: {litellm: {
     baseUrl: env.LITELLM_BASE_URL,
@@ -72,7 +75,7 @@ config="$private/models.yml"
     apiKey: "LITELLM_API_KEY",
     authHeader: true,
     headers: {"x-litellm-trace-id": "HESTIA_LITELLM_TRACE_ID"},
-    discovery: {type: "litellm"}
+    discovery: {type: "openai-models-list", injectV1: false}
 }}}' > "$config")
 chmod 0400 "$config"
 # GNU ln -T is exclusive and rejects files, symlinks and directories. The private

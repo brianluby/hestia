@@ -79,15 +79,48 @@ clean_transient() {
 # key and opaque model ID on a disposable in-container loopback stub.
 dc exec -T workspace bash -c 'test ! -e "$HOME/.omp/agent" && test -z "$(find "$HOME/.omp" -name models.db -print -quit)"' || fail 'native discovery cache already exists'
 
-"$attach" --endpoint "$endpoint" --model "$model" --trace-id "$trace_id" --no-tty "$root/ws.yml" \
-    --no-session --no-tools --no-extensions --no-skills --no-lsp --no-title --max-time 45s -p 'Reply with the fixed local test response.' >"$root/cold-native.log" 2>&1 || fail 'cold native localhost completion failed'
-grep -q HESTIA_LOCAL_STUB_OK "$root/cold-native.log" || fail 'completed localhost response missing'
+# Keep the HOST input pipe open for the entire process. --no-stdin must
+# close container stdin independently of --no-tty; a regression waits for EOF
+# before native model/session setup and this bounded test fails.
+python3 - "$root/cold-native.log" "$attach" --endpoint "$endpoint" --model "$model" \
+    --trace-id "$trace_id" --no-tty --no-stdin "$root/ws.yml" \
+    --mode json --no-session --no-tools --no-extensions --no-skills --no-lsp --no-title \
+    --max-time 45s -p 'Reply with the fixed local test response.' <<'PY_COLD' || fail 'cold native JSON completion did not finish with host stdin still open'
+import pathlib, subprocess, sys
+log = pathlib.Path(sys.argv[1])
+with log.open("wb") as output:
+    process = subprocess.Popen(sys.argv[2:], stdin=subprocess.PIPE, stdout=output, stderr=subprocess.STDOUT)
+    try:
+        # No write or close: stdin stays open until the native print turn ends.
+        status = process.wait(timeout=75)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=5)
+        raise SystemExit("native handoff did not receive EOF within the bound")
+    finally:
+        process.stdin.close()
+if status != 0:
+    raise SystemExit("native handoff returned a nonzero status")
+PY_COLD
+python3 - "$root/cold-native.log" "$model" <<'PY_COLD_JSON' || fail 'completed native JSON response missing or invalid'
+import json, pathlib, sys
+records = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines() if line.lstrip().startswith("{")]
+assert records and all(isinstance(record, dict) for record in records)
+assert not any(record.get("type", "").startswith("tool_execution_") for record in records)
+responses = [record["message"] for record in records if record.get("type") == "message_end" and record.get("message", {}).get("role") == "assistant"]
+assert responses
+message = responses[-1]
+assert message.get("provider") == "litellm" and message.get("model") == sys.argv[2]
+assert message.get("stopReason") == "stop" and not message.get("errorMessage")
+assert any(block.get("type") == "text" and "HESTIA_LOCAL_STUB_OK" in block.get("text", "") for block in message.get("content", []))
+PY_COLD_JSON
 dc exec -T workspace cat /tmp/hestia-litellm-stub.log >"$root/stub-requests.log"
-grep -qx 'GET /model_group/info auth=true trace=true traceExact=true' "$root/stub-requests.log" || fail 'native discovery missed explicit trace header'
+grep -qx 'GET /v1/models auth=true trace=true traceExact=true' "$root/stub-requests.log" || fail 'native discovery missed explicit trace header'
+if grep -Eq '^GET /(model_group|model)/' "$root/stub-requests.log"; then fail 'native discovery used rich management metadata'; fi
 grep -qx 'POST /v1/chat/completions model=true auth=true trace=true traceExact=true tools=0 stream=true' "$root/stub-requests.log" || fail 'native completion missed exact ID, fake auth, trace or zero tools'
 clean_transient
 dc exec -T workspace bash -c 'test -z "$(find "$HOME/.omp" -name "*.jsonl" -print -quit)"' || fail 'no-session probe persisted a native session'
-ok 'cold native discovery/completion receive explicit trace UUID with fake key, no tools/session and transient cleanup'
+ok 'cold native JSON print receives EOF despite open host stdin; /v1/models/completion use explicit trace, fake key, no tools/session and cleanup'
 
 
 "$attach" --endpoint "$endpoint" --model "$model" --no-tty "$root/ws.yml" --version >"$root/native-version.log" 2>&1 || fail 'native version invocation failed'
@@ -116,6 +149,7 @@ printf '%s\n' "$@" >>"$LITELLM_TEST_ARGS"
 args=("$@")
 for ((i=0; i<${#args[@]}-1; i++)); do
 	if [ "${args[$i]}" = workspace ] && [ "${args[$((i+1))]}" = bash ] && [ "${args[$((i+2))]:-}" = /opt/hestia/omp/litellm-session.sh ]; then
+		if [ "${LITELLM_TEST_ARGV_ONLY:-0}" = 1 ]; then exit 0; fi
 		exec "$LITELLM_TEST_DOCKER" "${args[@]:0:$((i+1))}" bash -c '
 			test "$LITELLM_API_KEY" = HESTIA_FAKE_LITELLM_KEY &&
 			[[ "$LITELLM_BASE_URL" = http://127.0.0.1:*/v1 ]] &&
@@ -143,13 +177,28 @@ start = max(i for i, arg in enumerate(args) if arg == "/opt/hestia/omp/litellm-s
 assert args[start - 1:] == ["bash", "/opt/hestia/omp/litellm-session.sh", sys.argv[2],
                           "--resume", "fixture-session"], args[start - 1:]
 assert args[start - 3:start - 1] == ["HESTIA_LITELLM_TRACE_ID", "workspace"]
+launch = args[max(i for i, arg in enumerate(args) if arg == "exec"):]
+assert "-T" in launch and "--interactive=false" not in launch
 PY
-ok 'exact caller model/resume reach image wrapper with bare trace environment'
+ok 'exact caller model/resume reach image wrapper with bare trace environment; --no-tty alone retains stdin'
+PATH="$root/bin:$PATH" LITELLM_TEST_ARGS="$root/no-stdin-args.log" LITELLM_TEST_ARGV_ONLY=1 \
+    "$attach" --endpoint "$endpoint" --model "$model" --trace-id "$trace_id" --no-stdin "$root/ws.yml" \
+    --version >"$root/no-stdin-probe.log" 2>&1 || fail 'independent stdin option rejected'
+python3 - "$root/no-stdin-args.log" <<'PY_STDIN'
+import pathlib, sys
+args = pathlib.Path(sys.argv[1]).read_text().splitlines()
+launch = args[max(i for i, arg in enumerate(args) if arg == "exec"):]
+assert "--interactive=false" in launch and "-T" not in launch
+start = launch.index("/opt/hestia/omp/litellm-session.sh")
+assert launch[start + 2:] == ["--version"]
+PY_STDIN
+ok '--no-stdin closes only container stdin, remains independent of --no-tty and is consumed before native argv'
+
 # Exercise real image wrapper ownership/status/argv with test-owned omp, no HTTP.
 cat >"$root/omp-probe" <<'SH_PROBE'
 #!/usr/bin/env bash
 set -euo pipefail
-jq -e '.providers.litellm | .baseUrl == env.LITELLM_BASE_URL and .api == "openai-completions" and .discovery.type == "litellm" and .headers == {"x-litellm-trace-id":"HESTIA_LITELLM_TRACE_ID"} and (.apiKey == "LITELLM_API_KEY") and (.authHeader == true) and (has("models") | not)' "$HOME/.omp/agent/models.yml" >/dev/null
+jq -e '.providers.litellm | .baseUrl == env.LITELLM_BASE_URL and .api == "openai-completions" and .discovery == {"type":"openai-models-list","injectV1":false} and .headers == {"x-litellm-trace-id":"HESTIA_LITELLM_TRACE_ID"} and (.apiKey == "LITELLM_API_KEY") and (.authHeader == true) and (has("models") | not)' "$HOME/.omp/agent/models.yml" >/dev/null
 if grep -q HESTIA_FAKE_LITELLM_KEY "$HOME/.omp/agent/models.yml"; then exit 91; fi
 if [ "$1" = models ]; then
     printf '%s\n' "$@" >/tmp/hestia-native-probe/discovery-args
@@ -311,11 +360,11 @@ for config in config.yml config.yaml; do if [ -f "$root/saved-$config" ]; then m
 ok 'nonempty legacy SQLite settings without native YAML reject without migration or row modification'
 # Real native JSONL creation/resume against the same fixed fake response proves
 # ordinary database/session state is permitted; this is not agent acceptance.
-"$attach" --endpoint "$endpoint" --model "$model" --no-tty "$root/ws.yml" \
+"$attach" --endpoint "$endpoint" --model "$model" --no-tty --no-stdin "$root/ws.yml" \
     --no-tools --no-skills --no-lsp --no-title --max-time 45s -p 'Create a synthetic protocol session.' >"$root/native-session.log" 2>&1 || fail 'synthetic native session creation failed'
 session="$(dc exec -T workspace find /home/dev/.omp/agent/sessions -name '*.jsonl' -print -quit)"
 [ -n "$session" ] || fail 'native completed session not persisted'
-"$attach" --endpoint "$endpoint" --model "$model" --no-tty "$root/ws.yml" --resume "$session" \
+"$attach" --endpoint "$endpoint" --model "$model" --no-tty --no-stdin "$root/ws.yml" --resume "$session" \
     --no-tools --no-skills --no-lsp --no-title --max-time 45s -p 'Resume the synthetic protocol session.' >"$root/native-resume.log" 2>&1 || fail 'synthetic native saved-session resume failed'
 grep -q HESTIA_LOCAL_STUB_OK "$root/native-session.log" && grep -q HESTIA_LOCAL_STUB_OK "$root/native-resume.log" || fail 'native saved/resumed completion missing'
 dc exec -T workspace cat "$session" >"$root/native-session.jsonl"
