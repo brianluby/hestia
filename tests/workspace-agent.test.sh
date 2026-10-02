@@ -18,7 +18,7 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 gen="$here/workspace/workspace-compose.sh"
 life="$here/workspace/workspace-lifecycle.sh"
-image="hestia-agent:2026-09-10"
+image="${HESTIA_AGENT_TEST_IMAGE:-hestia-agent:2026-09-10}"
 
 if ! command -v docker >/dev/null 2>&1; then
 	echo "SKIP: docker not installed"
@@ -135,6 +135,16 @@ grep -q "omp-rc=1" "$root/auth.log" &&
 grep -q "git-ok" "$root/auth.log" &&
 	ok "shell and source remain usable after the auth failure" || bad "git broken after auth failure"
 
+echo "== first-run defaults (06174H1) =="
+setup="$(docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace omp config get setupVersion 2>/dev/null)" || setup=""
+[ "$setup" = "2" ] && ok "image marks pinned onboarding complete" || bad "setup marker: $setup"
+dark="$(docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace omp config get theme.dark 2>/dev/null)" || dark=""
+[ "$dark" = "titanium" ] && ok "fresh state uses the native Titanium default" || bad "dark default: $dark"
+docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace omp config set theme.dark dark-nord >/dev/null 2>&1 &&
+	ok "native settings command can change the theme" || bad "native theme write failed"
+dark="$(docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace omp config get theme.dark 2>/dev/null)" || dark=""
+[ "$dark" = "dark-nord" ] && ok "appearance preferences are not shadowed by policy" || bad "theme override: $dark"
+
 echo "== settings persistence (FA5H9TR) =="
 # omp persists settings with an atomic write: create
 # config.yml.<pid>.<uuid>.tmp in ~/.omp/agent/ (verified against omp
@@ -153,7 +163,7 @@ esac
 # reports the effective merged value and needs no credentials (the model
 # list is auth-driven and would be empty either way).
 docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace \
-	bash -c 'printf "disabledProviders: []\n" >/home/dev/.omp/agent/config.yml' 2>/dev/null ||
+	bash -c 'printf "disabledProviders: []\ntheme:\n  dark: dark-nord\n" >/home/dev/.omp/agent/config.yml' 2>/dev/null ||
 	bad "writing the user config failed"
 eff="$(docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace \
 	omp config get disabledProviders 2>/dev/null)" || eff=""
@@ -198,6 +208,11 @@ post_recreate_ver="$(docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T works
 	post_recreate_ver=""
 [ "$post_recreate_ver" = "omp/18.1.16" ] &&
 	ok "omp runs in the replacement container after re-trust" || bad "post-recreate omp: $post_recreate_ver"
+
+post_setup="$(docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace omp config get setupVersion 2>/dev/null)" || post_setup=""
+[ "$post_setup" = "2" ] && ok "image setup marker survives recreation" || bad "setup marker after recreate: $post_setup"
+post_dark="$(docker compose -p "$ws_id" -f "$root/ws.yaml" exec -T workspace omp config get theme.dark 2>/dev/null)" || post_dark=""
+[ "$post_dark" = "dark-nord" ] && ok "native appearance setting survives recreation" || bad "theme after recreate: $post_dark"
 
 "$here/fixtures/bin/fixture-snapshot.sh" compare "$repo" "$fx/snapshots/00-created" >/dev/null 2>&1 &&
 	ok "source and Git state unchanged by the agent work" || bad "agent probes mutated the fixture"
