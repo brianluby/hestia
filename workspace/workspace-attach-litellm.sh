@@ -5,7 +5,7 @@ set +x
 set -euo pipefail
 
 usage() {
-	echo 'usage: workspace-attach-litellm.sh --endpoint URL --model ID [--trace-id UUID] [--no-tty] <compose-file> [omp-args...]' >&2
+	echo 'usage: workspace-attach-litellm.sh --endpoint URL --model ID [--trace-id UUID] [--no-tty] [--no-stdin] <compose-file> [omp-args...]' >&2
 	exit 2
 }
 fail() { echo "workspace-attach-litellm: $*" >&2; exit 1; }
@@ -14,12 +14,14 @@ endpoint=''
 model=''
 trace_id=''
 no_tty=0
+no_stdin=0
 while [ "$#" -gt 0 ]; do
 	case "$1" in
 	--endpoint) [ -z "$endpoint" ] && [ "$#" -ge 2 ] || usage; endpoint="$2"; shift 2 ;;
 	--model) [ -z "$model" ] && [ "$#" -ge 2 ] || usage; model="$2"; shift 2 ;;
 	--trace-id) [ -z "$trace_id" ] && [ "$#" -ge 2 ] && [ -n "$2" ] || usage; trace_id="$2"; shift 2 ;;
 	--no-tty) no_tty=1; shift ;;
+	--no-stdin) no_stdin=1; shift ;;
 	-*) usage ;;
 	*) break ;;
 	esac
@@ -153,6 +155,7 @@ export LITELLM_BASE_URL="$endpoint" PI_CONFIG_FILES=/opt/hestia/omp/litellm.yml
 # removes only its own temporary model config on normal exit or caught signals.
 exec_args=(exec)
 [ "$no_tty" -eq 0 ] || exec_args+=(-T)
+[ "$no_stdin" -eq 0 ] || exec_args+=(--interactive=false)
 exec_args+=(-e PI_CONFIG_FILES -e LITELLM_BASE_URL -e LITELLM_API_KEY -e HESTIA_LITELLM_TRACE_ID workspace)
 exec docker compose -p "$project" -f "$file" "${exec_args[@]}" \
     bash /opt/hestia/omp/litellm-session.sh "$model" "$@"
