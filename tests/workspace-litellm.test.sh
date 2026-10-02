@@ -123,6 +123,31 @@ ok 'opted-in overlay is root-owned while native settings remain atomically writa
 dc exec -T workspace cat /opt/hestia/omp/config.yml >"$root/default-policy.yml"
 cmp "$here/agent/omp/config.yml" "$root/default-policy.yml" || fail 'default provider policy bytes changed'
 ok 'default provider policy byte-identical to existing source'
+
+# Execute the canonical Dockerfile derivation against a seeded source policy
+# in this disposable runtime. This catches integration with first-run defaults:
+# setupVersion must occur once, and unrelated non-secret keys must survive.
+derivation="$(python3 - "$here/Dockerfile" <<'PY'
+import pathlib, sys
+lines = pathlib.Path(sys.argv[1]).read_text().splitlines()
+start = next(i for i, line in enumerate(lines) if line.startswith("RUN sed "))
+step = []
+for line in lines[start:]:
+    step.append(line)
+    if not line.endswith("\\"):
+        break
+print("\n".join(step)[4:])
+PY
+)"
+dc exec -T --user root workspace sh -c 'cp /opt/hestia/omp/config.yml /tmp/default-policy-before-control && printf "\nsetupVersion: 2\ntheme:\n  dark: serius\n" >>/opt/hestia/omp/config.yml'
+dc exec -T --user root workspace sh -c "$derivation" || fail 'canonical derivation failed with seeded setup marker'
+[ "$(dc exec -T workspace grep -c '^setupVersion:' /opt/hestia/omp/litellm.yml)" = 1 ] || fail 'seeded marker duplicated'
+[ "$(dc exec -T -e PI_CONFIG_FILES=/opt/hestia/omp/litellm.yml workspace omp config get setupVersion)" = 2 ] || fail 'seeded native overlay malformed'
+dc exec -T -e PI_CONFIG_FILES=/opt/hestia/omp/litellm.yml workspace omp config get theme.dark >"$root/seeded-theme.txt"
+grep -qx serius "$root/seeded-theme.txt" || fail 'extra nonsecret theme default lost'
+dc exec -T --user root workspace sh -c 'mv /tmp/default-policy-before-control /opt/hestia/omp/config.yml'
+dc exec -T --user root workspace sh -c "$derivation"
+ok 'canonical derivation with seeded setupVersion remains native-valid, exactly once, and preserves extra defaults'
 cid="$(dc ps -q workspace)"
 docker inspect "$cid" >"$root/container-inspect.json"
 docker image inspect "$image" >"$root/image-inspect.json"
