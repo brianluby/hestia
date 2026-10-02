@@ -48,9 +48,7 @@ func main() {
 		if r.Method == "GET" {
 			fmt.Fprintf(log, "GET %s auth=true trace=true traceExact=%t\n", r.URL.Path, traceExact)
 			w.Header().Set("Content-Type", "application/json")
-			if r.URL.Path == "/model_group/info" {
-				io.WriteString(w, `{"data":[{"model_group":"`+model+`","providers":["hestia"],"max_input_tokens":8192,"max_output_tokens":256,"supports_vision":false,"supports_reasoning":false,"supports_function_calling":false}]}`)
-			} else if r.URL.Path == "/v1/models" {
+			if r.URL.Path == "/v1/models" {
 				io.WriteString(w, `{"object":"list","data":[{"id":"`+model+`","object":"model"}]}`)
 			} else {
 				w.WriteHeader(http.StatusNotFound)
