@@ -86,6 +86,26 @@ again and recapture rather than accepting a partial archive.
    each checkout. Require rebuilt caches and compare source/state again. Restore
    real runtime credentials through their separate supported handoff when needed.
 
+Run the self-contained fixture from the Hestia checkout on a Docker-shared path:
+
+```sh
+rtk proxy env KEEP_ARTIFACTS=1 python3 tests/workspace-backup-restore.test.py
+```
+
+It requires host Git/Python (with tar extraction filters), reachable Docker and
+Compose, and the existing canonical `hestia-agent:2026-09-10` image. It performs
+four real builds/tests: both original checkouts and both restored checkouts.
+Missing Docker/image is a failure; a reported prerequisite `SKIP` is not an
+executed proof. `HESTIA_TEST_IMAGE` and `HESTIA_TEST_ROOT` can explicitly select
+another prebuilt canonical image and Docker-shared synthetic storage parent.
+Only the run's four uniquely identified Compose projects and cache volumes are
+removed. With `KEEP_ARTIFACTS=1`, the tar, manifest, checksum, source copies,
+snapshots and command/exit receipt remain in the printed private fixture root.
+Without it, those synthetic artifacts are removed after a successful run.
+The extraction safety filter changes regular-file permissions; the fixture
+reapplies recorded non-symlink modes before checking fidelity. Owner IDs, ACLs,
+extended attributes and service-specific restore are outside this proof.
+
 The exercised fixture test and sanitized receipt are recorded with `R3N7X5F`.
 This procedure proves selected synthetic state fidelity; it does not establish
 native authenticated omp session resume, Argus compatibility, Windows/WSL2
