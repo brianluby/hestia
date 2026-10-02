@@ -27,8 +27,10 @@ reauthenticate at runtime. Do not infer that arbitrary ignored files are either
 safe to exclude or safe to back up: classify the selected tree explicitly.
 
 The synthetic archive is classified non-secret and requires no encryption. If
-review shows unavoidable session or database state mixed with secrets, stop
-before producing plaintext backup: choose user-controlled encryption and
+any selected data contains secrets — source, Git config/hooks, sessions or
+database state — stop before producing a plaintext backup. Exclude those
+secrets and prefer reauthentication where possible. If sensitive data must
+remain in the backup, choose user-controlled encryption and
 recovery keys, encrypt the archive and its sensitive manifest during capture,
 and verify decryption/restore in an isolated location. Encryption, reauthentication
 and native session restoration are not exercised by the synthetic proof.
