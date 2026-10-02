@@ -1,0 +1,886 @@
+{
+  "schema_version": 2,
+  "observed_date": "2026-10-02",
+  "scope": "Apple Silicon nonproprietary M1A fixture with user-selected native omp/LiteLLM",
+  "passed": true,
+  "historical_receipt": "m1-apple-silicon-result.json",
+  "tested_head": "bbb5b21cad68590612bb6a22f07e6956df99fa12",
+  "image_tag": "hestia-agent:4ac12ye-litellm-final-20261002",
+  "image_id": "sha256:99434438c11a25bc5118dae8191a8bb5341fca277fadcfc407bb2bf0ca50e252",
+  "architecture": "linux/arm64",
+  "platform": "macOS27.0.1/Darwin27.0.0 arm64; Docker29.8.2 client/29.5.2 server; Compose5.5.1",
+  "tools": {
+    "mise": "2026.9.4",
+    "go": "1.27.1 linux/arm64",
+    "omp": "18.1.16"
+  },
+  "file_sha256": {
+    "Dockerfile": "27657e92d0564cd6a5784c62573b535dcd21dc0a5890513b4a5969cf0e0e115b",
+    "agent/omp/litellm-session.sh": "1192b444291695a1a5b66a068c7a9eef060964f06ff506e76836deb2c2843bae",
+    "workspace/workspace-attach-litellm.sh": "51eaae37451b6be5bef80822dcefec7d206ac65cd07b6b8cd2f2dc029470fdfd",
+    "tests/workspace-litellm.test.sh": "3ca041d7adccd41c1bd76643064cb4b01cc701bde6ac3b95d7f56fc4faaf33ff",
+    "tests/litellm-stub.go": "3bfd11ae350b8e2b00a22f99cf6828546fce11ab3b340dbbad715a37723b617b",
+    "workspace/workspace-compose.sh": "4718794717d45a2a2c767b5c7ef7e082e998d7cf6e9b56dfdf8ad62e32f9ccab",
+    "workspace/workspace-lifecycle.sh": "c79a858db16aef7fc4359c6eee0223f9b6d076d6ec2461ba739ee40bc3db43c9",
+    "fixtures/bin/fixture-snapshot.sh": "14b165d76697e1ee33efdbc902d5a7d35df8ae9e6f4deda6422bede7e4436551"
+  },
+  "requirements": {
+    "M1-01": {
+      "result": "pass",
+      "scope": "applicable nonproprietary fixture cases",
+      "evidence": "m1-apple-silicon-evidence-v2.md"
+    },
+    "M1-02": {
+      "result": "pass",
+      "scope": "applicable nonproprietary fixture cases",
+      "evidence": "m1-apple-silicon-evidence-v2.md"
+    },
+    "M1-03": {
+      "result": "pass",
+      "scope": "applicable nonproprietary fixture cases",
+      "evidence": "m1-apple-silicon-evidence-v2.md"
+    },
+    "M1-04": {
+      "result": "pass",
+      "scope": "applicable nonproprietary fixture cases",
+      "evidence": "m1-apple-silicon-evidence-v2.md"
+    },
+    "M1-05": {
+      "result": "pass",
+      "scope": "applicable nonproprietary fixture cases",
+      "evidence": "m1-apple-silicon-evidence-v2.md"
+    },
+    "M1-06": {
+      "result": "pass",
+      "scope": "applicable nonproprietary fixture cases",
+      "evidence": "m1-apple-silicon-evidence-v2.md"
+    },
+    "M1-07": {
+      "result": "pass",
+      "scope": "applicable nonproprietary fixture cases",
+      "evidence": "m1-apple-silicon-evidence-v2.md"
+    },
+    "M1-08": {
+      "result": "pass",
+      "scope": "applicable nonproprietary fixture cases",
+      "evidence": "m1-apple-silicon-evidence-v2.md"
+    },
+    "M1-09": {
+      "result": "pass",
+      "scope": "applicable nonproprietary fixture cases",
+      "evidence": "m1-apple-silicon-evidence-v2.md"
+    }
+  },
+  "historical_core_checks": {
+    "passed": 101,
+    "failed": 0,
+    "skip": false,
+    "tested_head": "fccd1bd6cafd7d0410d1886742ea5dea7264f8c0",
+    "image_tags": "existing suite-specific tags; see historical receipt",
+    "unchanged_foundation_helpers": {
+      "workspace/workspace-compose.sh": true,
+      "workspace/workspace-lifecycle.sh": true,
+      "fixtures/bin/fixture-snapshot.sh": true
+    }
+  },
+  "final_litellm_stub_checks": {
+    "passed": 34,
+    "failed": 0,
+    "skip": false,
+    "image_id": "sha256:99434438c11a25bc5118dae8191a8bb5341fca277fadcfc407bb2bf0ca50e252",
+    "command": [
+      "rtk",
+      "proxy",
+      "env",
+      "HESTIA_LITELLM_TEST_IMAGE=hestia-agent:4ac12ye-litellm-final-20261002",
+      "KEEP_ARTIFACTS=1",
+      "bash",
+      "tests/workspace-litellm.test.sh"
+    ]
+  },
+  "cold_image_build": {
+    "exit_code": 0,
+    "seconds": 48.329,
+    "command": [
+      "rtk",
+      "proxy",
+      "docker",
+      "build",
+      "--no-cache",
+      "--target",
+      "agent",
+      "-t",
+      "hestia-agent:4ac12ye-litellm-final-20261002",
+      "."
+    ]
+  },
+  "cached_image_build": {
+    "exit_code": 0,
+    "seconds": 0.212,
+    "command": [
+      "rtk",
+      "proxy",
+      "docker",
+      "build",
+      "--target",
+      "agent",
+      "-t",
+      "hestia-agent:4ac12ye-litellm-final-20261002",
+      "."
+    ]
+  },
+  "historical_cold_warm_workspace_start_seconds": {
+    "cold": 0.732,
+    "warm": 0.804
+  },
+  "authenticated_native_proof": {
+    "passed": true,
+    "tested_head": "bbb5b21cad68590612bb6a22f07e6956df99fa12",
+    "image_id": "sha256:99434438c11a25bc5118dae8191a8bb5341fca277fadcfc407bb2bf0ca50e252",
+    "provider": "litellm",
+    "model": "qwen-27b-hf",
+    "api": "openai-completions",
+    "first": {
+      "assistant_messages": 37,
+      "tools": {
+        "read": {
+          "started": 11,
+          "completed": 11,
+          "errors": 0
+        },
+        "edit": {
+          "started": 27,
+          "completed": 27,
+          "errors": 25
+        }
+      },
+      "successful_write_tools": 2,
+      "route": {
+        "provider": "litellm",
+        "model": "qwen-27b-hf",
+        "api": "openai-completions"
+      },
+      "final_stop_reason": "stop"
+    },
+    "resumed_edit": {
+      "assistant_messages": 5,
+      "tools": {
+        "read": {
+          "started": 4,
+          "completed": 4,
+          "errors": 0
+        },
+        "edit": {
+          "started": 3,
+          "completed": 3,
+          "errors": 0
+        }
+      },
+      "successful_write_tools": 3,
+      "route": {
+        "provider": "litellm",
+        "model": "qwen-27b-hf",
+        "api": "openai-completions"
+      },
+      "final_stop_reason": "stop"
+    },
+    "native_session_id": "01a0fc4d-1b5b-71b8-9172-fb95a9b72e64",
+    "original_user_assistant_stream_payloads_retained_with_native_metadata_additions": true,
+    "first_recreation_source_git_snapshots_identical": true,
+    "raw_index_unchanged": true,
+    "nonpermitted_source_files_unchanged": true,
+    "allowed_source_paths": [
+      "greet/greet.go",
+      "greet/greet_test.go"
+    ],
+    "final_recreation": {
+      "passed": true,
+      "container_before": "712b2220f29c07b9a8bb603edf7bca7274f115407fd41ec1a7bbcb1dfc6cc24b",
+      "container_after": "b17039543ea81ef3f44bf0e8d580056f61b824af72ac509f85e17a9fc48fd3a7",
+      "selected_state_files": 33,
+      "session_records": 146,
+      "session_sha256": "b3767bc5afd0b02a832d39a6dcc1dae0930b41fe7252343b24b7d77fb83f42d0",
+      "all_git_files": 52,
+      "raw_index_sha256": "a067da73ed1db29de7bee9663807b128ad72e8250a8b2a1a995d0f8bd667cdab",
+      "source_git_snapshot_sha256": {
+        "files.worktree-sha": "bb55780963211e883b9d4ec7b73c1dd4421743e15361c909ac26675259c0f22b",
+        "head.branch": "599bbcd7b7f94b50d9b83318ba0dd4b8e1ba9e39d1d3ee73d1fbbd70496d0f93",
+        "head.commit": "3b2a892e9ea0656ac72d495b83c647ac28bf820f270e7ae7c4723159a03b92d8",
+        "head.tree": "dccb7f61e7f24558f09b1adab742bebc857bf4472a94800695e13807c782f799",
+        "index.ls-files": "96877d3976698707587d1e68aaf83c8373429b6128715561b98bd9a836416c3f",
+        "index.tree": "f290e9fbe167d0c333f991595468a09e4ed6433c4e950eefd1f12e9b0659a3cb",
+        "status.porcelain-v2": "10cb68495875661e596a6684b083fd07a54df7c9ee87563ac54a425737f5b34d",
+        "status.short": "fc71b6015297292c212eaa16a46ba320fa56b96149c6cb760640b0e133d9f008",
+        "worktrees.porcelain": "fd9fdeb16be450f788fcf0968385d18d610ef04bc680f8e0a02c544b6542556c"
+      }
+    },
+    "final_native_resume_exact_original_token_recalled": true,
+    "prior_native_record_ids_and_user_assistant_content_retained": true,
+    "native_superseded_read_results_pruned_after_resume": 1,
+    "builds_tests_passed": 3,
+    "independent_behavior_checks_passed": 3,
+    "credential_matches_at_rest": 0,
+    "stored_litellm_auth_rows": 0,
+    "separate_attach_has_no_runtime_credentials_or_trace": true,
+    "temporary_models_pointer_and_lock_removed": true,
+    "endpoint_invalid_key_status": 401,
+    "invalid_key_handoff_exit_code": 1,
+    "shell_source_after_denial_usable": true,
+    "fresh_valid_key_recovered": true
+  },
+  "native_after_resume_maintenance": {
+    "ordered_prior_entry_ids_retained": true,
+    "later_compatible_path_read_observed": true,
+    "superseded_result_count": 1,
+    "superseded_read_path": "greet/greet.go",
+    "native_placeholder": "[Superseded by a newer read of this file]",
+    "changed_fields": [
+      "message.content",
+      "message.prunedAt"
+    ],
+    "user_assistant_and_all_other_record_fields_unchanged": true,
+    "records_before": 146,
+    "records_after": 149
+  },
+  "commands": [
+    {
+      "label": "endpoint-denied-key",
+      "sanitized_command": [
+        "<bounded HTTPS GET /models invalid-key probe with trace header>"
+      ],
+      "exit_code": 0,
+      "seconds": 0.142
+    },
+    {
+      "label": "denied-key",
+      "sanitized_command": [
+        "<hestia>/workspace/workspace-attach-litellm.sh",
+        "--endpoint",
+        "https://<approved-host>/v1",
+        "--model",
+        "qwen-27b-hf",
+        "--trace-id",
+        "<TRACE_UUID>",
+        "--no-tty",
+        "--no-stdin",
+        "<private-proof>/ws-litellm.yml",
+        "-p",
+        "--mode",
+        "json",
+        "--no-tools",
+        "--no-session",
+        "--no-title",
+        "--max-time",
+        "20s",
+        "Return a short authentication probe response."
+      ],
+      "exit_code": 1,
+      "seconds": 1.24
+    },
+    {
+      "label": "shell-after-denied",
+      "sanitized_command": [
+        "docker",
+        "compose",
+        "-p",
+        "hestia-repo-ce0a9e169ec7",
+        "-f",
+        "<private-proof>/ws-litellm.yml",
+        "exec",
+        "-T",
+        "workspace",
+        "bash",
+        "-c",
+        "test -f NOTES.md && git rev-parse HEAD >/dev/null && mise exec -- go test -count=1 ./..."
+      ],
+      "exit_code": 0,
+      "seconds": 0.323
+    },
+    {
+      "label": "agent-first",
+      "sanitized_command": [
+        "<hestia>/workspace/workspace-attach-litellm.sh",
+        "--endpoint",
+        "https://<approved-host>/v1",
+        "--model",
+        "qwen-27b-hf",
+        "--trace-id",
+        "<TRACE_UUID>",
+        "--no-tty",
+        "--no-stdin",
+        "<private-proof>/ws-litellm.yml",
+        "-p",
+        "--mode",
+        "json",
+        "--thinking",
+        "off",
+        "--tools",
+        "read,edit",
+        "--approval-mode",
+        "write",
+        "--no-skills",
+        "--no-lsp",
+        "--no-title",
+        "--max-time",
+        "120s",
+        "<fixture-edit request>"
+      ],
+      "exit_code": 0,
+      "seconds": 23.059
+    },
+    {
+      "label": "first-build-test",
+      "sanitized_command": [
+        "docker",
+        "compose",
+        "-p",
+        "hestia-repo-ce0a9e169ec7",
+        "-f",
+        "<private-proof>/ws-litellm.yml",
+        "exec",
+        "-T",
+        "workspace",
+        "bash",
+        "-c",
+        "mise exec -- go build ./... && mise exec -- go test -count=1 -v ./..."
+      ],
+      "exit_code": 0,
+      "seconds": 0.384
+    },
+    {
+      "label": "first-independent-behavior",
+      "sanitized_command": [
+        "docker",
+        "compose",
+        "exec",
+        "-T",
+        "workspace",
+        "bash",
+        "-c",
+        "<independent exported-function probe; see MD>"
+      ],
+      "exit_code": 0,
+      "seconds": 0.18
+    },
+    {
+      "label": "first-review-diff",
+      "sanitized_command": [
+        "git",
+        "-C",
+        "<private-proof>/hestia-fixture-VFDTk3kT/repo",
+        "diff",
+        "--",
+        "greet/greet.go",
+        "greet/greet_test.go"
+      ],
+      "exit_code": 0,
+      "seconds": 0.065
+    },
+    {
+      "label": "before-agent-recreate",
+      "sanitized_command": [
+        "<hestia>/fixtures/bin/fixture-snapshot.sh",
+        "capture",
+        "<private-proof>/hestia-fixture-VFDTk3kT/repo",
+        "<private-proof>/before-agent-recreate"
+      ],
+      "exit_code": 0,
+      "seconds": 0.122
+    },
+    {
+      "label": "agent-cid-before",
+      "sanitized_command": [
+        "docker",
+        "compose",
+        "-p",
+        "hestia-repo-ce0a9e169ec7",
+        "-f",
+        "<private-proof>/ws-litellm.yml",
+        "ps",
+        "-q",
+        "workspace"
+      ],
+      "exit_code": 0,
+      "seconds": 0.094
+    },
+    {
+      "label": "agent-recreate",
+      "sanitized_command": [
+        "<hestia>/workspace/workspace-lifecycle.sh",
+        "recreate",
+        "<private-proof>/ws-litellm.yml"
+      ],
+      "exit_code": 0,
+      "seconds": 10.916
+    },
+    {
+      "label": "agent-cid-after",
+      "sanitized_command": [
+        "docker",
+        "compose",
+        "-p",
+        "hestia-repo-ce0a9e169ec7",
+        "-f",
+        "<private-proof>/ws-litellm.yml",
+        "ps",
+        "-q",
+        "workspace"
+      ],
+      "exit_code": 0,
+      "seconds": 0.098
+    },
+    {
+      "label": "after-agent-recreate",
+      "sanitized_command": [
+        "<hestia>/fixtures/bin/fixture-snapshot.sh",
+        "capture",
+        "<private-proof>/hestia-fixture-VFDTk3kT/repo",
+        "<private-proof>/after-agent-recreate"
+      ],
+      "exit_code": 0,
+      "seconds": 0.121
+    },
+    {
+      "label": "agent-retrust",
+      "sanitized_command": [
+        "docker",
+        "compose",
+        "-p",
+        "hestia-repo-ce0a9e169ec7",
+        "-f",
+        "<private-proof>/ws-litellm.yml",
+        "exec",
+        "-T",
+        "workspace",
+        "mise",
+        "trust",
+        "<private-proof>/hestia-fixture-VFDTk3kT/repo"
+      ],
+      "exit_code": 0,
+      "seconds": 0.139
+    },
+    {
+      "label": "agent-resume",
+      "sanitized_command": [
+        "<hestia>/workspace/workspace-attach-litellm.sh",
+        "--endpoint",
+        "https://<approved-host>/v1",
+        "--model",
+        "qwen-27b-hf",
+        "--trace-id",
+        "<TRACE_UUID>",
+        "--no-tty",
+        "--no-stdin",
+        "<private-proof>/ws-litellm.yml",
+        "--resume",
+        "/home/dev/.omp/agent/sessions/--Users-bluby-.cache-hestia-m1-proofs-run-enryxux3-hestia-fixture-VFDTk3kT-repo--/2026-10-02T11-08-26-843Z_01a0fc4d-1b5b-71b8-9172-fb95a9b72e64.jsonl",
+        "-p",
+        "--mode",
+        "json",
+        "--thinking",
+        "off",
+        "--tools",
+        "read,edit",
+        "--approval-mode",
+        "write",
+        "--no-skills",
+        "--no-lsp",
+        "--no-title",
+        "--max-time",
+        "120s",
+        "<fixture-edit request>"
+      ],
+      "exit_code": 0,
+      "seconds": 13.46
+    },
+    {
+      "label": "resumed-build-test",
+      "sanitized_command": [
+        "docker",
+        "compose",
+        "-p",
+        "hestia-repo-ce0a9e169ec7",
+        "-f",
+        "<private-proof>/ws-litellm.yml",
+        "exec",
+        "-T",
+        "workspace",
+        "bash",
+        "-c",
+        "mise exec -- go build ./... && mise exec -- go test -count=1 -v ./..."
+      ],
+      "exit_code": 0,
+      "seconds": 0.581
+    },
+    {
+      "label": "resumed-independent-behavior",
+      "sanitized_command": [
+        "docker",
+        "compose",
+        "exec",
+        "-T",
+        "workspace",
+        "bash",
+        "-c",
+        "<independent exported-function probe; see MD>"
+      ],
+      "exit_code": 0,
+      "seconds": 0.212
+    },
+    {
+      "label": "resumed-review-diff",
+      "sanitized_command": [
+        "git",
+        "-C",
+        "<private-proof>/hestia-fixture-VFDTk3kT/repo",
+        "diff",
+        "--",
+        "greet/greet.go",
+        "greet/greet_test.go"
+      ],
+      "exit_code": 0,
+      "seconds": 0.048
+    },
+    {
+      "label": "final-before-recreate",
+      "sanitized_command": [
+        "<hestia>/fixtures/bin/fixture-snapshot.sh",
+        "capture",
+        "<private-proof>/hestia-fixture-VFDTk3kT/repo",
+        "<private-proof>/final-before-recreate"
+      ],
+      "exit_code": 0,
+      "seconds": 0.132
+    },
+    {
+      "label": "final-cid-before",
+      "sanitized_command": [
+        "docker",
+        "compose",
+        "-p",
+        "hestia-repo-ce0a9e169ec7",
+        "-f",
+        "<private-proof>/ws-litellm.yml",
+        "ps",
+        "-q",
+        "workspace"
+      ],
+      "exit_code": 0,
+      "seconds": 0.098
+    },
+    {
+      "label": "final-recreate",
+      "sanitized_command": [
+        "<hestia>/workspace/workspace-lifecycle.sh",
+        "recreate",
+        "<private-proof>/ws-litellm.yml"
+      ],
+      "exit_code": 0,
+      "seconds": 10.836
+    },
+    {
+      "label": "final-cid-after",
+      "sanitized_command": [
+        "docker",
+        "compose",
+        "-p",
+        "hestia-repo-ce0a9e169ec7",
+        "-f",
+        "<private-proof>/ws-litellm.yml",
+        "ps",
+        "-q",
+        "workspace"
+      ],
+      "exit_code": 0,
+      "seconds": 0.092
+    },
+    {
+      "label": "final-after-recreate",
+      "sanitized_command": [
+        "<hestia>/fixtures/bin/fixture-snapshot.sh",
+        "capture",
+        "<private-proof>/hestia-fixture-VFDTk3kT/repo",
+        "<private-proof>/final-after-recreate"
+      ],
+      "exit_code": 0,
+      "seconds": 0.133
+    },
+    {
+      "label": "final-retrust",
+      "sanitized_command": [
+        "docker",
+        "compose",
+        "-p",
+        "hestia-repo-ce0a9e169ec7",
+        "-f",
+        "<private-proof>/ws-litellm.yml",
+        "exec",
+        "-T",
+        "workspace",
+        "mise",
+        "trust",
+        "<private-proof>/hestia-fixture-VFDTk3kT/repo"
+      ],
+      "exit_code": 0,
+      "seconds": 0.123
+    },
+    {
+      "label": "final-native-resume",
+      "sanitized_command": [
+        "<hestia>/workspace/workspace-attach-litellm.sh",
+        "--endpoint",
+        "https://<approved-host>/v1",
+        "--model",
+        "qwen-27b-hf",
+        "--trace-id",
+        "<TRACE_UUID>",
+        "--no-tty",
+        "--no-stdin",
+        "<private-proof>/ws-litellm.yml",
+        "--resume",
+        "/home/dev/.omp/agent/sessions/--Users-bluby-.cache-hestia-m1-proofs-run-enryxux3-hestia-fixture-VFDTk3kT-repo--/2026-10-02T11-08-26-843Z_01a0fc4d-1b5b-71b8-9172-fb95a9b72e64.jsonl",
+        "-p",
+        "--mode",
+        "json",
+        "--thinking",
+        "off",
+        "--no-tools",
+        "--no-skills",
+        "--no-lsp",
+        "--no-title",
+        "--max-time",
+        "60s",
+        "What exact acceptance memory token did I supply in my first request in this conversation? Return only that token verbatim. Do not use tools."
+      ],
+      "exit_code": 0,
+      "seconds": 4.021
+    },
+    {
+      "label": "final-build-test",
+      "sanitized_command": [
+        "docker",
+        "compose",
+        "-p",
+        "hestia-repo-ce0a9e169ec7",
+        "-f",
+        "<private-proof>/ws-litellm.yml",
+        "exec",
+        "-T",
+        "workspace",
+        "bash",
+        "-c",
+        "mise exec -- go build ./... && mise exec -- go test -count=1 -v ./..."
+      ],
+      "exit_code": 0,
+      "seconds": 0.537
+    },
+    {
+      "label": "final-independent-behavior",
+      "sanitized_command": [
+        "docker",
+        "compose",
+        "exec",
+        "-T",
+        "workspace",
+        "bash",
+        "-c",
+        "<independent exported-function probe; see MD>"
+      ],
+      "exit_code": 0,
+      "seconds": 0.185
+    },
+    {
+      "label": "separate-attach-no-key",
+      "sanitized_command": [
+        "docker",
+        "compose",
+        "-p",
+        "hestia-repo-ce0a9e169ec7",
+        "-f",
+        "<private-proof>/ws-litellm.yml",
+        "exec",
+        "-T",
+        "workspace",
+        "bash",
+        "-c",
+        "<probe command>"
+      ],
+      "exit_code": 0,
+      "seconds": 0.121
+    },
+    {
+      "label": "missing-key",
+      "sanitized_command": [
+        "<hestia>/workspace/workspace-attach-litellm.sh",
+        "--endpoint",
+        "https://<approved-host>/v1",
+        "--model",
+        "qwen-27b-hf",
+        "--trace-id",
+        "<TRACE_UUID>",
+        "--no-tty",
+        "--no-stdin",
+        "<private-proof>/ws-litellm.yml",
+        "--version"
+      ],
+      "exit_code": 1,
+      "seconds": 0.059
+    },
+    {
+      "label": "final-container-inspect",
+      "sanitized_command": [
+        "docker",
+        "inspect",
+        "b17039543ea81ef3f44bf0e8d580056f61b824af72ac509f85e17a9fc48fd3a7"
+      ],
+      "exit_code": 0,
+      "seconds": 0.052
+    }
+  ],
+  "command_sanitization": "Private paths, endpoint/trace and edit prompt bodies replaced; original commands retained privately. No credential values recorded.",
+  "credential_checks": {
+    "literal_key_matches": 0,
+    "stored_litellm_auth_rows": 0,
+    "key_in_builds_or_argv": false,
+    "separate_attach_has_runtime_key": false,
+    "trace_header": "x-litellm-trace-id",
+    "trace_on_native_discovery_and_inference_verified": true
+  },
+  "network": {
+    "direct_colima_lan_worked": false,
+    "temporary_exact_destination_connect_transport": true,
+    "tls_passthrough": true,
+    "tls_verification_retained": true,
+    "fixture_only_https_proxy": true,
+    "canonical_generator_changed_for_transport": false
+  },
+  "cleanup": {
+    "passed": true,
+    "containers_absent": true,
+    "cache_volume_absent": true,
+    "source_git_and_native_state_preserved": true,
+    "fixture_and_native_state_retained": true,
+    "image_retained": true,
+    "host_runtime": {
+      "literal_credential_matches": 0,
+      "scanned_paths_count": 7,
+      "credential_runtime_process_stopped": true,
+      "connect_transport_process_stopped": true,
+      "loopback_listener_absent": true,
+      "key_memory_zeroization_claimed": false
+    },
+    "commands": [
+      {
+        "label": "image-inspect",
+        "exit_code": 0,
+        "seconds": 0.127,
+        "sanitized_command": [
+          "rtk",
+          "proxy",
+          "docker",
+          "image",
+          "inspect",
+          "hestia-agent:4ac12ye-litellm-final-20261002"
+        ]
+      },
+      {
+        "label": "image-history",
+        "exit_code": 0,
+        "seconds": 0.093,
+        "sanitized_command": [
+          "rtk",
+          "proxy",
+          "docker",
+          "history",
+          "--no-trunc",
+          "hestia-agent:4ac12ye-litellm-final-20261002"
+        ]
+      },
+      {
+        "label": "remove-runtime",
+        "exit_code": 0,
+        "seconds": 10.413,
+        "sanitized_command": [
+          "rtk",
+          "proxy",
+          "<hestia>/workspace/workspace-lifecycle.sh",
+          "remove-runtime",
+          "<private-proof>/ws-litellm.yml"
+        ]
+      },
+      {
+        "label": "cleanup-down",
+        "exit_code": 0,
+        "seconds": 0.187,
+        "sanitized_command": [
+          "rtk",
+          "proxy",
+          "docker",
+          "compose",
+          "-p",
+          "hestia-repo-ce0a9e169ec7",
+          "-f",
+          "<private-proof>/ws-litellm.yml",
+          "down",
+          "--timeout",
+          "1"
+        ]
+      },
+      {
+        "label": "cleanup-cache",
+        "exit_code": 0,
+        "seconds": 0.068,
+        "sanitized_command": [
+          "rtk",
+          "proxy",
+          "docker",
+          "volume",
+          "rm",
+          "hestia-repo-ce0a9e169ec7_linux-caches"
+        ]
+      },
+      {
+        "label": "cleanup-containers",
+        "exit_code": 0,
+        "seconds": 0.053,
+        "sanitized_command": [
+          "rtk",
+          "proxy",
+          "docker",
+          "compose",
+          "-p",
+          "hestia-repo-ce0a9e169ec7",
+          "-f",
+          "<private-proof>/ws-litellm.yml",
+          "ps",
+          "-aq"
+        ]
+      },
+      {
+        "label": "cleanup-volume-absence",
+        "exit_code": 1,
+        "seconds": 0.022,
+        "sanitized_command": [
+          "rtk",
+          "proxy",
+          "docker",
+          "volume",
+          "inspect",
+          "hestia-repo-ce0a9e169ec7_linux-caches"
+        ]
+      }
+    ]
+  },
+  "limitations": [
+    "Bedrock authentication not run",
+    "Argus/employer pilot not run; Milestone1 incomplete",
+    "Windows/WSL2 not run",
+    "Direct Colima LAN connectivity failed; temporary host CONNECT transport required",
+    "Actual key expiry/automatic refresh not tested; host re-handoff/revocation documented",
+    "Upstream model catalog/default capabilities and token limits are not backend qualification",
+    "25 native edit attempts failed before first-turn successful edits; no general model tool-reliability claim",
+    "Native resume pruned one verified superseded read result after exact pre-resume preservation",
+    "Earlier failed Responses/stdin attempts retained privately; not credited as acceptance"
+  ],
+  "primary_checkout_original_diff_sha256": "ac597c98e92f67fd5ff1df53079fe238e73d2dd7b8f8bbe6eb2bffb48e95e5b8"
+}
