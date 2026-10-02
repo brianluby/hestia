@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# CF62H3E / 3B36AE6 — concurrency and isolated neighbor recreation.
-# usage: workspace-concurrency.test.sh [isolation|recreate]
+# CF62H3E / 3B36AE6 / M9FMY5V — concurrent fixtures and recreation.
+# worktree is a terminal/Git partial proof, not authenticated agent acceptance.
+# usage: workspace-concurrency.test.sh [isolation|recreate|worktree]
 # Uses the canonical fixture image and generated Compose files. No credentials.
 # KEEP_ARTIFACTS=1 preserves synthetic source/state and receipts; Docker resources
 # are always removed. Missing runtime/image is SKIP, not acceptance.
@@ -9,7 +10,8 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 image="${HESTIA_TEST_IMAGE:-hestia-fixture-tools:2026-09-09}"
 mode="${1:-isolation}"
-[ "$#" -le 1 ] && { [ "$mode" = isolation ] || [ "$mode" = recreate ]; } || { echo "usage: $0 [isolation|recreate]" >&2; exit 2; }
+[ "$#" -le 1 ] && { [ "$mode" = isolation ] || [ "$mode" = recreate ] || [ "$mode" = worktree ]; } || { echo "usage: $0 [isolation|recreate|worktree]" >&2; exit 2; }
+if [ "$mode" = worktree ]; then image="${HESTIA_TEST_IMAGE:-hestia-agent:2026-09-10}"; fi
 for prerequisite in docker git python3; do
 	command -v "$prerequisite" >/dev/null || { echo "SKIP: $prerequisite unavailable"; exit 0; }
 done
@@ -71,7 +73,7 @@ cleanup() {
 trap cleanup EXIT
 
 {
-	echo "suite: CF62H3E / 3B36AE6 $mode"
+	echo "suite: CF62H3E / 3B36AE6 / M9FMY5V $mode"
 	shasum -a 256 "$here/tests/workspace-concurrency.test.sh"
 	echo "tested-head: $(git -C "$here" rev-parse HEAD)"
 	echo "host: $(uname -srm)"
@@ -83,14 +85,26 @@ trap cleanup EXIT
 cat "$root/environment.txt"
 
 # These fixtures are synthetic and need only already-installed image tools.
-# Create two independent Git repositories without touching host mise/toolchain.
+# Create independent repos, or one main checkout plus a linked worktree.
+# Host mise/toolchains are never touched.
+if [ "$mode" = worktree ]; then
+	mkdir -p "$root/a/repo" "$root/b"
+	cp -R "$here/fixtures/synthetic/." "$root/a/repo/"
+	git -C "$root/a/repo" init -q -b proof/a
+	git -C "$root/a/repo" -c user.name="Hestia Fixture" -c user.email=hestia-fixture@invalid -c commit.gpgsign=false add -A
+	git -C "$root/a/repo" -c user.name="Hestia Fixture" -c user.email=hestia-fixture@invalid -c commit.gpgsign=false commit -qm "synthetic linked-worktree fixture"
+	git -C "$root/a/repo" worktree add -q -b proof/b "$root/b/repo"
+	cp "$root/b/repo/.git" "$root/b.git-link.before"
+fi
 for slot in a b; do
 	repo="$root/$slot/repo"
 	mkdir -p "$repo"
-	cp -R "$here/fixtures/synthetic/." "$repo/"
-	git -C "$repo" init -q -b "proof/$slot"
-	git -C "$repo" -c user.name="Hestia Fixture" -c user.email=hestia-fixture@invalid -c commit.gpgsign=false add -A
-	git -C "$repo" -c user.name="Hestia Fixture" -c user.email=hestia-fixture@invalid -c commit.gpgsign=false commit -qm "synthetic fixture $slot"
+	if [ ! -e "$repo/.git" ]; then
+		cp -R "$here/fixtures/synthetic/." "$repo/"
+		git -C "$repo" init -q -b "proof/$slot"
+		git -C "$repo" -c user.name="Hestia Fixture" -c user.email=hestia-fixture@invalid -c commit.gpgsign=false add -A
+		git -C "$repo" -c user.name="Hestia Fixture" -c user.email=hestia-fixture@invalid -c commit.gpgsign=false commit -qm "synthetic fixture $slot"
+	fi
 	"$here/workspace/workspace-compose.sh" --image "$image" --out "$root/$slot.yml" "$repo"
 	"$here/identity/workspace-id.sh" "$repo" >"$root/$slot.identity"
 	"$here/workspace/workspace-lifecycle.sh" start "$root/$slot.yml" >"$root/$slot.start.log" 2>&1
@@ -106,16 +120,21 @@ state_b="$HESTIA_STATE_ROOT/$id_b"
 
 check "matching repository basenames" test "$(basename "$repo_a")" = "$(basename "$repo_b")"
 check "workspace identities are distinct" test "$id_a" != "$id_b"
-check "repository identities are distinct" test "$(sed -n 's/^repo-group: //p' "$root/a.identity")" != "$(sed -n 's/^repo-group: //p' "$root/b.identity")"
+if [ "$mode" = worktree ]; then
+	check "worktrees share repository-group identity" test "$(sed -n 's/^repo-group: //p' "$root/a.identity")" = "$(sed -n 's/^repo-group: //p' "$root/b.identity")"
+else
+	check "repository identities are distinct" test "$(sed -n 's/^repo-group: //p' "$root/a.identity")" != "$(sed -n 's/^repo-group: //p' "$root/b.identity")"
+fi
 check "containers are distinct and both running" bash -c '[ "$1" != "$2" ] && [ "$(docker inspect -f "{{.State.Running}}" "$1")" = true ] && [ "$(docker inspect -f "{{.State.Running}}" "$2")" = true ]' _ "$(cat "$root/a.cid")" "$(cat "$root/b.cid")"
 
-# Real reviewable edits, staging, and durable/cache writes from each workspace.
-for slot in a b; do
+# Both terminal workloads launch before waiting; each uses its own index.
+build_in_workspace() {
+	local slot="$1" state
 	state="$HESTIA_STATE_ROOT/$(sed -n 's/^name: //p' "$root/$slot.yml")"
-	if dc "$slot" exec -T workspace bash -c '
+	dc "$slot" exec -T workspace bash -c '
 		set -euo pipefail
 		mise trust "$PWD" >/dev/null
-		printf "\n// WorkspaceLabel identifies this independent fixture.\nfunc WorkspaceLabel() string { return \"%s\" }\n" "$1" >>greet/greet.go
+		printf "\n// WorkspaceLabel identifies this checkout fixture.\nfunc WorkspaceLabel() string { return \"%s\" }\n" "$1" >>greet/greet.go
 		printf "\nfunc TestWorkspaceLabel(t *testing.T) { if WorkspaceLabel() != \"%s\" { t.Fatal(WorkspaceLabel()) } }\n" "$1" >>greet/greet_test.go
 		go fmt ./...
 		git add greet/greet.go
@@ -128,11 +147,27 @@ for slot in a b; do
 		go build ./...
 		go test -count=1 ./...
 		git status --porcelain=v2 --branch
-	' _ "$slot" "$state" >"$root/$slot.build.log" 2>&1; then
-		ok "$slot container edits, staging, build and uncached tests pass"
-	else
-		cat "$root/$slot.build.log"
-		bad "$slot build/test or edit failed"
+	' _ "$slot" "$state" >"$root/$slot.build.log" 2>&1
+}
+build_in_workspace a & build_pid_a=$!
+build_in_workspace b & build_pid_b=$!
+for slot in a b; do
+	build_pid="$build_pid_a"
+	[ "$slot" != b ] || build_pid="$build_pid_b"
+	if wait "$build_pid"; then ok "$slot concurrent edits, staging, build and uncached tests pass"
+	else cat "$root/$slot.build.log"; bad "$slot build/test or edit failed"
+	fi
+done
+for slot in a b; do
+	if [ "$mode" = worktree ]; then
+		dc "$slot" exec -T workspace bash -c 'omp --version && omp config get disabledProviders' >"$root/$slot.native-cli.log" 2>&1 && ok "$slot native omp CLI config initializes without inference" || bad "$slot native CLI failed"
+		check "$slot native omp database is scoped to its state" test -f "$HESTIA_STATE_ROOT/$(sed -n 's/^name: //p' "$root/$slot.yml")/omp/agent/agent.db"
+		dc "$slot" exec -T workspace git rev-parse --path-format=absolute --git-common-dir >"$root/$slot.common-git"
+		check "$slot container resolves expected common Git directory" grep -qx "$root/a/repo/.git" "$root/$slot.common-git"
+		dc "$slot" exec -T workspace git diff --cached >"$root/$slot.staged.diff"
+		branch="$(dc "$slot" exec -T workspace git symbolic-ref --short HEAD)"
+		check "$slot intended branch retained" test "$branch" = "proof/$slot"
+		check "$slot staged diff includes real checkout edit" grep -q 'WorkspaceLabel' "$root/$slot.staged.diff"
 	fi
 	check "$slot host sees container source edit" test -f "$root/$slot/repo/$slot-only.txt"
 	snapshot capture "$slot" >/dev/null
@@ -148,15 +183,18 @@ done
 
 # Assert actual mounts/resources, not only generated YAML. Current workspaces
 # declare no service ports. Distinct default networks cover Compose resources.
-if python3 - "$root" "$id_a" "$id_b" <<'PY'
+if python3 - "$root" "$id_a" "$id_b" "$mode" <<'PY'
 import json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
-for slot, ident in zip(("a", "b"), sys.argv[2:]):
+for slot, ident in zip(("a", "b"), sys.argv[2:4]):
     item = json.loads((root / f"{slot}.inspect.json").read_text())[0]
     repo = str(root / slot / "repo")
     state = str(root / "state" / ident)
     binds = {(m["Source"], m["Destination"]) for m in item["Mounts"] if m["Type"] == "bind"}
     expected = {(repo, repo), (state, state), (state + "/omp", "/home/dev/.omp")}
+    if sys.argv[4] == "worktree" and slot == "b":
+        common = str(root / "a" / "repo" / ".git")
+        expected.add((common, common))
     assert binds == expected, (slot, binds, expected)
     volumes = {(m["Name"], m["Destination"]) for m in item["Mounts"] if m["Type"] == "volume"}
     assert volumes == {(ident + "_linux-caches", "/hestia/cache")}, volumes
@@ -174,7 +212,7 @@ for slot in a b; do
 done
 
 
-if [ "$mode" = recreate ]; then
+if [ "$mode" = recreate ] || [ "$mode" = worktree ]; then
 	echo "== recreate A while B completes useful build/test work =="
 	for slot in a b; do
 		state="$HESTIA_STATE_ROOT/$(sed -n 's/^name: //p' "$root/$slot.yml")"
@@ -238,6 +276,18 @@ if [ "$mode" = recreate ]; then
 	check "B network identity retained" bash -c 'test "$(docker inspect -f "{{range .NetworkSettings.Networks}}{{.NetworkID}}{{end}}" "$1")" = "$2"' _ "$after_b" "$(python3 -c 'import json,sys; print(next(iter(json.load(open(sys.argv[1]))[0]["NetworkSettings"]["Networks"].values()))["NetworkID"])' "$root/b.inspect.json")"
 fi
 
+if [ "$mode" = worktree ]; then
+	check "linked-worktree gitdir pointer unchanged by workloads/recreation" cmp "$root/b.git-link.before" "$root/b/repo/.git"
+	for slot in a b; do
+		branch="$(dc "$slot" exec -T workspace git symbolic-ref --short HEAD)"
+		check "$slot final intended branch unchanged" test "$branch" = "proof/$slot"
+		dc "$slot" exec -T workspace git rev-parse --path-format=absolute --git-common-dir >"$root/$slot.final-common-git"
+		check "$slot final common metadata still resolves" cmp "$root/$slot.common-git" "$root/$slot.final-common-git"
+		dc "$slot" exec -T workspace git diff --cached >"$root/$slot.final-staged.diff"
+		check "$slot final staged diff retained" cmp "$root/$slot.staged.diff" "$root/$slot.final-staged.diff"
+	done
+	echo "NOT RUN: authenticated terminal-agent inference and native session resume (M9FMY5V remains partial)"
+fi
 cleanup_resources
 for slot in a b; do
 	id="$(sed -n 's/^name: //p' "$root/$slot.yml")"
