@@ -1,0 +1,138 @@
+{
+  "scope": "Apple Silicon nonproprietary foundation; real authenticated agent proof NOT RUN",
+  "tested_head": "fccd1bd6cafd7d0410d1886742ea5dea7264f8c0",
+  "image": "hestia-agent:4ac12ye-20261002",
+  "image_id": "sha256:894c7b78bdaa29cfd29f65e243b15b4c4a31941bfc1faf36d45c346ff31721a2",
+  "architecture": "linux/arm64",
+  "platform": "macOS27.0.1/Darwin27.0.0 arm64; Docker29.8.2 client/29.5.2 server; Compose5.5.1",
+  "tools": {
+    "mise": "2026.9.4",
+    "go": "1.27.1 linux/arm64",
+    "omp": "18.1.16"
+  },
+  "file_sha256": {
+    "Dockerfile": "994c4d245a663fae06a959f1157522320c5371c9ba69754b4c3a0cf4f827c86a",
+    "workspace/workspace-attach-litellm.sh": "89592d3bf7c19e0c89f82289de53b0683a6e9be37f6c0a22bdf61c19c211badd",
+    "workspace/workspace-compose.sh": "4718794717d45a2a2c767b5c7ef7e082e998d7cf6e9b56dfdf8ad62e32f9ccab",
+    "workspace/workspace-lifecycle.sh": "c79a858db16aef7fc4359c6eee0223f9b6d076d6ec2461ba739ee40bc3db43c9",
+    "fixtures/bin/fixture-snapshot.sh": "14b165d76697e1ee33efdbc902d5a7d35df8ae9e6f4deda6422bede7e4436551"
+  },
+  "core_suites": [
+    {
+      "suite": "fixture-snapshot",
+      "exit_code": 0,
+      "skip": false,
+      "seconds": 1.11
+    },
+    {
+      "suite": "workspace-id",
+      "exit_code": 0,
+      "skip": false,
+      "seconds": 1.439
+    },
+    {
+      "suite": "workspace-mounts",
+      "exit_code": 0,
+      "skip": false,
+      "seconds": 16.046
+    },
+    {
+      "suite": "workspace-lifecycle",
+      "exit_code": 0,
+      "skip": false,
+      "seconds": 91.743
+    },
+    {
+      "suite": "workspace-cache-clear",
+      "exit_code": 0,
+      "skip": false,
+      "seconds": 46.363
+    }
+  ],
+  "core_checks_passed": 101,
+  "core_checks_failed": 0,
+  "cold_image_build": {
+    "exit_code": 0,
+    "seconds": 109.601,
+    "builder": "existing legacy Docker builder; buildx unavailable"
+  },
+  "warm_image_build": {
+    "exit_code": 0,
+    "seconds": 0.647
+  },
+  "workspace_start_seconds": {
+    "cold": 0.732,
+    "warm": 0.804
+  },
+  "cache": {
+    "passed": true,
+    "cache_file_counts": [
+      1098,
+      0,
+      1097
+    ],
+    "container_before": "1f0bd86a454ad033380a5eb0d0ea653d1cc616e36f17bf18d10a5bd9db656bdb",
+    "container_after": "b4906a87bef0d22d4d774e33d6349f397a3ba8c548543251b33aa93d2fcc75c5",
+    "selected_state_files": 11,
+    "selected_state_unchanged": true,
+    "raw_index_unchanged": true,
+    "source_git_unchanged": true,
+    "build_test_exit": 0
+  },
+  "unavailable_toolchain": {
+    "exit_code": 1,
+    "expected_rejection": true,
+    "source_restored": true,
+    "raw_index_unchanged": true
+  },
+  "provider_requests": 0,
+  "actual_key_accessed": false,
+  "limitations": [
+    "Exact-destination confirmation required by automatic approval review",
+    "Real assisted edit/build/native saved-session resume not run",
+    "Argus/employer and Windows/WSL2 not run",
+    "/private/tmp host binds failed writability/visibility; accepted host binds use home-cache fixture path",
+    "M1-09 permission-denied metadata uses container-local synthetic storage; no host-bind claim"
+  ],
+  "cleanup": {
+    "project": "hestia-repo-ce0a9e169ec7",
+    "containers_absent": true,
+    "cache_volume_absent": true,
+    "source_git_bytes_preserved": true,
+    "native_state_bytes_preserved": true,
+    "fixture_retained_for_authorized_continuation": true,
+    "commands": [
+      {
+        "command": [
+          "/Users/bluby/.codex/worktrees/hestia-agent-credentials/hestia/workspace/workspace-lifecycle.sh",
+          "remove-runtime",
+          "/Users/bluby/.cache/hestia-m1-proofs/run-enryxux3/ws.yml"
+        ],
+        "exit_code": 0
+      },
+      {
+        "command": [
+          "docker",
+          "compose",
+          "-p",
+          "hestia-repo-ce0a9e169ec7",
+          "-f",
+          "/Users/bluby/.cache/hestia-m1-proofs/run-enryxux3/ws.yml",
+          "down",
+          "--timeout",
+          "1"
+        ],
+        "exit_code": 0
+      },
+      {
+        "command": [
+          "docker",
+          "volume",
+          "rm",
+          "hestia-repo-ce0a9e169ec7_linux-caches"
+        ],
+        "exit_code": 0
+      }
+    ]
+  }
+}
