@@ -261,6 +261,50 @@ routing. Verify real inference and explicit native resume for the selected
 endpoint/model before closing agent acceptance; synthetic plumbing does not
 satisfy those criteria.
 
+## Copy selected host appearance preferences
+
+Preference copying is explicit and one-time (`WF6TXF9`). After generating a
+workspace with an already-built `agent` image, run this before its first omp
+start, with the workspace stopped and no agent writing state:
+
+```sh
+workspace/workspace-omp-preferences.sh \
+  --source "$HOME/.omp/agent/config.yml" \
+  --key theme.dark --key theme.light --key composer.shape --key symbolPreset \
+  "$compose"
+```
+
+The only accepted keys are `theme.dark`, `theme.light`, `composer.shape`,
+`symbolPreset`, `colorBlindMode` and `statusLine.preset`. Select each key
+explicitly. The helper requires host `jq`, Docker/Compose and the workspace's
+local image. A network-disabled disposable container runs that image's
+`omp config get` against exactly the supplied read-only file with isolated
+agent/cwd directories. It writes only selected appearance leaves into a new,
+mode-0600 native `omp/agent/config.yml`; the JSON mapping is valid YAML and
+native omp settings commands remain writable. Missing source keys resolve
+to the pinned upstream default. Source contents and imported values are not
+printed. Only the supplied file is briefly exposed to the reader; its path
+is absent from the workspace Compose file and runtime mounts.
+
+Any existing `config.yml`, `config.yaml`, `settings.json` or `agent.db` causes
+a no-op, preserving existing settings and legacy migration byte for byte.
+There is no implicit reseed or merge. Change existing workspace preferences
+with native `/settings` or `omp config set` instead. The image overlay still
+controls `disabledProviders` and the first-run marker.
+
+Credential/auth fields, sessions, databases, `models.yml`, provider/model
+choices, permission settings, extensions and host theme definitions are
+excluded. Use built-in theme names and composer layouts; transferring custom
+theme files or extension-defined layouts remains unresolved. `statusLine.preset`
+accepts built-in presets except `custom` (custom segment definitions are not
+copied). Model/default-role and custom-provider transfer require a separate
+explicit provider decision; this appearance import cannot change them.
+
+The [synthetic preference suite](../tests/workspace-omp-preferences.test.sh)
+and [scoped receipt](../docs/omp-preferences-evidence.md) verify exclusions,
+existing-state preservation, native writes, policy and recreation. Actual
+host preferences and credentials were not read for those tests.
+
 ## Limits
 
 One writer per checkout at a time: host and container share the working tree
