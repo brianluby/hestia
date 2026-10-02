@@ -37,8 +37,9 @@ without printing input values. Endpoint/key values stay out of Docker argv
 through bare `-e LITELLM_BASE_URL` and `-e LITELLM_API_KEY`; the selected
 `PI_CONFIG_FILES` name is forwarded the same way.
 
-Native invocation selects `--provider litellm`, the exact main model, and
-`--smol litellm/<ID>` / `--slow litellm/<ID>`. Remaining arguments, including
+Native invocation selects the main model with `--model "litellm/$model"` and
+does not pass `--provider`. It uses `--smol litellm/<ID>` / `--slow litellm/<ID>`.
+Remaining arguments, including
 native `--resume`, pass through without a replacement permission/session
 engine. No host credential database, models file, home mount or secret file
 is introduced. Runtime environment is available to the native process and
