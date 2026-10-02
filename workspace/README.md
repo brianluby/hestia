@@ -190,6 +190,36 @@ logging off, and do not save credentials in omp settings or agent responses.
 Synthetic handoff coverage is in [workspace-aws.test.sh](../tests/workspace-aws.test.sh);
 it does not establish authenticated Bedrock inference.
 
+### Opt-in LiteLLM handoff
+
+The selected alternative is an OpenAI-compatible LiteLLM endpoint. Build the
+current optional `agent` target explicitly and start/recreate with that image.
+Export `LITELLM_API_KEY` on the host through your existing secret source, then
+use an explicitly selected endpoint and model:
+
+```sh
+workspace/workspace-attach-litellm.sh --endpoint <URL> --model <ID> <file>
+# Native arguments remain available, including explicit saved-session resume:
+workspace/workspace-attach-litellm.sh --endpoint <URL> --model <ID> <file> --resume <session-id-or-path>
+```
+
+This invokes native omp directly. `--no-tty` supports scripted native `-p`
+work. The helper requires a nonempty key, passes only the key/endpoint and
+selected policy environment to that exec, and selects the exact LiteLLM
+main/small/slow model roles. Endpoint and key values stay out of Docker
+arguments and generated files. The image-owned LiteLLM overlay enables only
+that built-in provider and skips pinned onboarding; ordinary attaches retain
+the default Bedrock overlay. No host models.yml, auth database or home is
+copied or mounted. Permission/session controls remain native.
+
+Each attach/recreation needs another explicit handoff; revoke/refresh the key
+through its existing provider. Runtime environment remains visible to the
+agent and privileged inspection. The helper does not prove that every
+OpenAI-compatible server/model implements the selected upstream LiteLLM API
+routing. Verify real inference and explicit native resume for the selected
+endpoint/model before closing agent acceptance; synthetic plumbing does not
+satisfy those criteria.
+
 ## Limits
 
 One writer per checkout at a time: host and container share the working tree
