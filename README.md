@@ -2,7 +2,7 @@
 
 Hestia is a terminal-first development container project targeting Apple Silicon macOS and Windows through WSL2. The goal is reproducible toolchains and disposable containers without disposable work.
 
-**Status: fixture foundation implemented; Milestone 1 acceptance incomplete.** The synthetic Go fixture, checkout identity, canonical linux/arm64 image, scoped Compose generator, durable state, lifecycle/cache helpers and optional omp layer have macOS arm64 evidence in the [evidence log](docs/evidence.md). omp settings persistence and the provider-policy overlay are exercised; real AWS authentication, agent-assisted work and native session resume remain unverified. Argus and Windows/WSL2 acceptance are pending. There is no custom Hestia CLI.
+**Status: fixture foundation implemented; Milestone 1 acceptance incomplete.** The synthetic Go fixture, checkout identity, canonical linux/arm64 image, scoped Compose generator, durable state, lifecycle/cache helpers and optional omp layer have macOS arm64 evidence in the [evidence log](docs/evidence.md). omp settings persistence and the provider-policy overlay are exercised. The [native LiteLLM fixture proof](docs/m1-apple-silicon-evidence-v2.md) verifies real assisted edits, recreation and saved-session resume. Bedrock authentication, Argus and Windows/WSL2 acceptance are pending. There is no custom Hestia CLI.
 
 ## Intended workflow
 
@@ -22,7 +22,7 @@ The [workspace walkthrough](workspace/README.md#fixture-walkthrough) is runnable
 - Optional agents and project services, not an agent orchestration framework.
 - No default host Docker socket mount or broad credential/home-directory mounts.
 
-The first milestone has two evidence stages: a nonproprietary fixture on the available Apple Silicon Mac, followed by the Argus pilot on the employer work laptop. Argus source, credentials, and employer-specific configuration stay there. Fixture success alone does not complete the milestone. omp with AWS Bedrock is selected for the first agent integration; work-laptop platform and Argus build/service requirements remain open.
+The first milestone has two evidence stages: a nonproprietary fixture on the available Apple Silicon Mac, followed by the Argus pilot on the employer work laptop. Argus source, credentials, and employer-specific configuration stay there. Fixture success alone does not complete the milestone. omp retains AWS Bedrock as its default; the user-selected LiteLLM opt-in passes fixture acceptance. Work-laptop platform and Argus build/service requirements remain open.
 
 Identity and worktree mount planning are part of the foundation; full concurrent workloads, backup/restore, and the broader platform matrix follow. A future browser IDE variant will share the terminal variant's tools and state. Browser IDE and voice implementation are optional, not prerequisites for terminal use.
 

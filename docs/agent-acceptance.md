@@ -1,15 +1,11 @@
-# XJVWF4K: remaining native agent acceptance
+# XJVWF4K: native agent acceptance procedure
 
 [Workspace workflow](../workspace/README.md) · [AWS regression evidence](aws-handoff-evidence.md) · [LiteLLM handoff evidence](litellm-default-scope-evidence.md)
 
 The optional omp layer and writable scoped state already exist. Native
 regressions passed 24/24 on 2026-10-02. LiteLLM routing/protocol checks passed
 28/28, including cold lookup and synthetic saved-session resume before
-recreation. Real authentication, an agent-assisted change and native resume
-after recreation remain pending. The user has authorized a local
-LiteLLM model instead of Bedrock for this remaining acceptance. A runtime
-key has been supplied; explicit authorization of its destination and discovery
-of an exact available local model remain pending before authenticated calls.
+recreation. The [native LiteLLM fixture proof](m1-apple-silicon-evidence-v2.md) now verifies real authenticated edits and explicit saved-session resume after recreation; the final LiteLLM regressions pass 34/34. The user authorized the dedicated endpoint/key and selected local LiteLLM in place of Bedrock for fixture acceptance. Bedrock authentication remains unverified.
 Use only a fresh synthetic fixture, never employer source. Keep credentials
 and raw sessions/provider responses out of evidence.
 
@@ -20,9 +16,11 @@ and raw sessions/provider responses out of evidence.
 2. Inspect/trust this known fixture's mise config with `mise trust` in an
    ordinary attach. Export `LITELLM_API_KEY` through the host's existing
    user-controlled secret source, then invoke the native agent through
-   `workspace/workspace-attach-litellm.sh --endpoint <URL> --model <ID> <file>`.
+   `workspace/workspace-attach-litellm.sh --endpoint <URL> --model <ID> --trace-id <UUID> <file>`.
    The explicit opt-in selects the image-owned LiteLLM provider overlay and
-   exact main/small/slow model roles only for that exec session. No host
+   exact main/small/slow model roles only for that exec session. Discovery and
+   inference include `x-litellm-trace-id`; scripted JSON mode uses both
+   `--no-tty` and `--no-stdin`. No host
    provider or credential file is mounted/copied; retain native permissions.
    Optional Bedrock uses the separate `workspace-attach-aws.sh` helper, but
    AWS authentication is not required for this local-provider acceptance.
@@ -60,5 +58,6 @@ session if none exists, so use an explicit saved ID/path for the proof.
 [session format](https://github.com/can1357/oh-my-pi/blob/61b1b8aef634334eaf1412afd003a763e1d1b9c1/docs/session.md),
 [native session operations](https://github.com/can1357/oh-my-pi/blob/61b1b8aef634334eaf1412afd003a763e1d1b9c1/docs/session-operations-export-share-fork-resume.md).
 
-Until those observations exist, XJVWF4K remains incomplete. This fixture
-journey does not close the employer-local Argus pilot or Milestone 1.
+The linked receipt records these fixture observations under 4AC12YE. This
+fixture journey does not close the employer-local Argus pilot, prove Bedrock
+authentication or complete Milestone 1; tracker review of XJVWF4K is separate.

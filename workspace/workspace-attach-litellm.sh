@@ -5,19 +5,23 @@ set +x
 set -euo pipefail
 
 usage() {
-	echo 'usage: workspace-attach-litellm.sh --endpoint URL --model ID [--no-tty] <compose-file> [omp-args...]' >&2
+	echo 'usage: workspace-attach-litellm.sh --endpoint URL --model ID [--trace-id UUID] [--no-tty] [--no-stdin] <compose-file> [omp-args...]' >&2
 	exit 2
 }
 fail() { echo "workspace-attach-litellm: $*" >&2; exit 1; }
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 endpoint=''
 model=''
+trace_id=''
 no_tty=0
+no_stdin=0
 while [ "$#" -gt 0 ]; do
 	case "$1" in
 	--endpoint) [ -z "$endpoint" ] && [ "$#" -ge 2 ] || usage; endpoint="$2"; shift 2 ;;
 	--model) [ -z "$model" ] && [ "$#" -ge 2 ] || usage; model="$2"; shift 2 ;;
+	--trace-id) [ -z "$trace_id" ] && [ "$#" -ge 2 ] && [ -n "$2" ] || usage; trace_id="$2"; shift 2 ;;
 	--no-tty) no_tty=1; shift ;;
+	--no-stdin) no_stdin=1; shift ;;
 	-*) usage ;;
 	*) break ;;
 	esac
@@ -46,11 +50,18 @@ case "$authority" in
 esac
 printf '%s' "$model" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._:/-]*$' ||
 	fail 'model must be an explicit nonempty model ID without whitespace or control characters'
+case "$trace_id" in
+*$'\n'* | *$'\r'*) fail 'trace ID must be a UUID' ;;
+esac
+if [ -n "$trace_id" ]; then
+    printf '%s' "$trace_id" | grep -Eq '^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$' ||
+        fail 'trace ID must be a UUID'
+fi
 [ -n "${LITELLM_API_KEY:-}" ] || fail 'export a scoped nonempty LITELLM_API_KEY on the host and retry'
 # Existing preflight verifies identity, Compose and the local image.
 "$here/workspace-lifecycle.sh" validate "$file" >/dev/null
 project="$(sed -n 's/^name: //p' "$file" | head -1)"
-docker compose -p "$project" -f "$file" exec -T workspace test -r /opt/hestia/omp/litellm.yml >/dev/null 2>&1 ||
+docker compose -p "$project" -f "$file" exec -T workspace bash -c 'test -r /opt/hestia/omp/litellm.yml && test -r /opt/hestia/omp/litellm-session.sh' >/dev/null 2>&1 ||
 	fail 'running workspace with LiteLLM overlay required; build the current agent target explicitly and recreate'
 # Bound metadata checks and launch to the same default native storage. Reject
 # ambient redirection and dotenv files without reading or printing values.
@@ -133,28 +144,18 @@ rescue StandardError
 end
 ' >/dev/null 2>&1 ||
     fail 'broker selection or unsupported native settings metadata; use fresh default scoped state or deliberately resolve native configuration before handoff'
+# A fresh nonsecret correlation ID is scoped to this native handoff. Header
+# values are resolved from this name by the temporary native provider config.
+[ -n "$trace_id" ] || trace_id="$(python3 -c 'import uuid; print(uuid.uuid4())')"
+export HESTIA_LITELLM_TRACE_ID="$trace_id"
 export LITELLM_API_KEY
 export LITELLM_BASE_URL="$endpoint" PI_CONFIG_FILES=/opt/hestia/omp/litellm.yml
-# Pinned omp needs explicit native catalog discovery on cold LiteLLM state.
-# Keep provider responses/errors in memory; report only a generic failure.
-catalog="$(docker compose -p "$project" -f "$file" exec -T \
-    -e PI_CONFIG_FILES -e LITELLM_BASE_URL -e LITELLM_API_KEY workspace \
-    omp models litellm --json --no-extensions 2>/dev/null)" ||
-    fail 'native LiteLLM discovery failed; verify the selected endpoint, key permissions and model'
-printf '%s' "$catalog" | python3 -c '
-import json, sys
-try:
-    models = json.load(sys.stdin)["models"]
-    sys.exit(0 if any(m.get("provider") == "litellm" and m.get("id") == sys.argv[1] for m in models) else 1)
-except Exception:
-    sys.exit(1)
-' "$model" >/dev/null 2>&1 ||
-    fail 'exact selected model unavailable from native LiteLLM discovery; verify endpoint, key permissions and model'
-unset catalog
-# Bare -e names keep endpoint/key values out of argv and generated Compose.
-# Bash 3.2 + nounset needs a nonempty array; append optional -T conditionally.
+# Bare -e names keep endpoint/key/trace values out of Docker argv and Compose.
+# The image wrapper retains ownership across discovery and native omp, then
+# removes only its own temporary model config on normal exit or caught signals.
 exec_args=(exec)
 [ "$no_tty" -eq 0 ] || exec_args+=(-T)
-exec_args+=(-e PI_CONFIG_FILES -e LITELLM_BASE_URL -e LITELLM_API_KEY workspace)
+[ "$no_stdin" -eq 0 ] || exec_args+=(--interactive=false)
+exec_args+=(-e PI_CONFIG_FILES -e LITELLM_BASE_URL -e LITELLM_API_KEY -e HESTIA_LITELLM_TRACE_ID workspace)
 exec docker compose -p "$project" -f "$file" "${exec_args[@]}" \
-	omp --no-extensions --model "litellm/$model" --smol "litellm/$model" --slow "litellm/$model" "$@"
+    bash /opt/hestia/omp/litellm-session.sh "$model" "$@"
