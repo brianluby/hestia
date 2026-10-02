@@ -141,6 +141,19 @@ It is not a security boundary against control of the process environment or
 runtime overrides. Generate with `--image hestia-agent:<tag>` after explicitly
 building that tag with the `agent` target.
 
+Fresh workspaces skip the pinned omp 18.1.16 onboarding wizard through
+`setupVersion: 2` in the image overlay. The supported defaults are Titanium
+for dark terminals, Light for light terminals, Unicode glyphs and the Band
+composer (input editor) layout. These appearance values remain upstream
+schema defaults, so writable native settings can change them; the overlay
+does not force a theme or composer. There is no separate `editor.mode` key
+or first-run external-editor prompt in this version. No model identifier is
+invented: Bedrock chooses among models available with runtime authentication.
+`omp setup` can explicitly reopen the wizard. Recheck the marker and scenes
+when changing the pinned omp version. Sources: [settings schema](https://github.com/can1357/oh-my-pi/blob/61b1b8aef634334eaf1412afd003a763e1d1b9c1/packages/coding-agent/src/config/settings-schema.ts),
+[setup version](https://github.com/can1357/oh-my-pi/blob/61b1b8aef634334eaf1412afd003a763e1d1b9c1/packages/coding-agent/src/modes/setup-version.ts)
+and [wizard selection](https://github.com/can1357/oh-my-pi/blob/61b1b8aef634334eaf1412afd003a763e1d1b9c1/packages/coding-agent/src/modes/setup-wizard/index.ts).
+
 omp's durable state — sessions (`--resume`), the `agent.db` database, its own
 `~/.omp/agent/config.yml` settings (model selection, theme), memory, logs and
 extracted natives — lives under `~/.omp`, which the generated Compose file

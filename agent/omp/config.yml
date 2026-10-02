@@ -7,6 +7,11 @@
 # by the workspace state mount. Everything except bedrock is disabled;
 # bedrock authenticates through the standard AWS credential chain supplied
 # at runtime (never baked into images, Compose or logs).
+# 06174H1: v18.1.16 CURRENT_SETUP_VERSION is 2. This skips its provider,
+# model, glyph, composer-layout and theme onboarding on a fresh workspace.
+# Appearance stays in writable native settings; omit those keys here so
+# upstream defaults and explicitly copied workspace preferences still apply.
+setupVersion: 2
 disabledProviders:
   - "abliteration"
   - "aiand"
