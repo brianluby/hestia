@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# AWCEX5Z — synthetic LiteLLM exec-session plumbing; no endpoint calls.
+# AWCEX5Z — synthetic LiteLLM handoff; fake-key endpoint calls stay on localhost.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 image="${HESTIA_LITELLM_TEST_IMAGE:-hestia-agent:litellm-handoff}"
@@ -24,13 +24,19 @@ mkdir -p "$root/repo" "$root/bin"
 cp -R "$here/fixtures/synthetic/." "$root/repo/"
 git -C "$root/repo" init -q
 HESTIA_STATE_ROOT="$root/state" "$here/workspace/workspace-compose.sh" --image "$image" --out "$root/ws.yml" "$root/repo"
+# Test-only loopback networking prevents native discovery from reaching any
+# external endpoint. The canonical production generator is unchanged.
+sed -i.bak '/^  workspace:$/a\
+    network_mode: none
+' "$root/ws.yml"
+rm "$root/ws.yml.bak"
 project="$(sed -n 's/^name: //p' "$root/ws.yml")"
 "$here/workspace/workspace-lifecycle.sh" start "$root/ws.yml" >"$root/start.log" 2>&1
 dc() { docker compose -p "$project" -f "$root/ws.yml" "$@"; }
 attach="$here/workspace/workspace-attach-litellm.sh"
 {
 	echo "tested-head: $(git -C "$here" rev-parse HEAD)"
-	shasum -a 256 "$attach" "$here/Dockerfile"
+	shasum -a 256 "$attach" "$here/tests/workspace-litellm.test.sh" "$here/tests/litellm-stub.go" "$here/Dockerfile"
 	sw_vers 2>/dev/null || true
 	uname -srm
 	docker version --format 'client: {{.Client.Version}} server: {{.Server.Version}}'
@@ -39,8 +45,12 @@ attach="$here/workspace/workspace-attach-litellm.sh"
 } >"$root/environment.txt"
 cat "$root/environment.txt"
 dc exec -T workspace mise trust "$root/repo" >/dev/null
-endpoint=https://hestia.invalid/v1
-model=fixture/custom-model:exact
+dc exec -T workspace bash -c 'cat >/tmp/hestia-litellm-stub.go' <"$here/tests/litellm-stub.go"
+dc exec -T workspace go build -o /tmp/hestia-litellm-stub /tmp/hestia-litellm-stub.go >"$root/stub-build.log" 2>&1 || fail 'localhost stub build failed'
+dc exec -d workspace /tmp/hestia-litellm-stub
+port="$(dc exec -T workspace bash -c 'for i in {1..30}; do if test -s /tmp/hestia-litellm-stub.port; then cat /tmp/hestia-litellm-stub.port; exit 0; fi; sleep 0.1; done; exit 1')" || fail 'localhost stub not ready'
+endpoint="http://127.0.0.1:$port/v1"
+model=hestia-opaque-model-7e4/sub:exact
 unset LITELLM_API_KEY LITELLM_BASE_URL
 if "$attach" --endpoint "$endpoint" --model "$model" --no-tty "$root/ws.yml" --version >"$root/missing.log" 2>&1; then fail 'missing key accepted'; fi
 grep -q 'export a scoped nonempty LITELLM_API_KEY' "$root/missing.log" || fail 'missing key error not actionable'
@@ -55,9 +65,27 @@ for invalid in '-bad' 'bad model' $'valid\nsecond'; do
 	if "$attach" --endpoint "$endpoint" --model "$invalid" --no-tty "$root/ws.yml" --version >"$root/model-error.log" 2>&1; then fail 'invalid model accepted'; fi
 done
 ok 'model rejects option-like IDs, whitespace and line breaks'
+# Exercise real cold native lookup and a completed response using only a fake
+# key and opaque model ID on a disposable in-container loopback stub.
+dc exec -T workspace bash -c 'test ! -e "$HOME/.omp/agent" && test -z "$(find "$HOME/.omp" -name models.db -print -quit)"' || fail 'native discovery cache already exists'
+
+"$attach" --endpoint "$endpoint" --model "$model" --no-tty "$root/ws.yml" \
+    --no-session --no-tools --no-extensions --no-skills --no-lsp --no-title --max-time 45s -p 'Reply with the fixed local test response.' >"$root/cold-native.log" 2>&1 || fail 'cold native localhost completion failed'
+grep -q HESTIA_LOCAL_STUB_OK "$root/cold-native.log" || fail 'completed localhost response missing'
+dc exec -T workspace cat /tmp/hestia-litellm-stub.log >"$root/stub-requests.log"
+grep -qx 'POST /v1/chat/completions model=true auth=true tools=0 stream=true' "$root/stub-requests.log" || fail 'native completion did not use exact opaque ID, fake auth and zero tools'
+dc exec -T workspace bash -c 'test -z "$(find "$HOME/.omp" -name "*.jsonl" -print -quit)"' || fail 'no-session probe persisted a native session'
+ok 'cold empty-cache native LiteLLM lookup completes opaque-model localhost response with fake key and no tools or saved session'
+
+
 "$attach" --endpoint "$endpoint" --model "$model" --no-tty "$root/ws.yml" --version >"$root/native-version.log" 2>&1 || fail 'native version invocation failed'
 grep -Eq '^(omp/)?18[.]1[.]16$' "$root/native-version.log" || fail 'wrong native version'
 ok 'native omp version executes through opted-in attach without inference'
+if "$attach" --endpoint "$endpoint" --model HESTIA_FAKE_UNAVAILABLE_ID --no-tty "$root/ws.yml" -p 'No completion expected.' >"$root/unavailable-model.log" 2>&1; then fail 'unavailable exact ID accepted'; fi
+grep -q 'exact selected model unavailable' "$root/unavailable-model.log" || fail 'unavailable model error not bounded'
+if grep -q HESTIA_FAKE_ "$root/unavailable-model.log"; then fail 'unavailable model value printed'; fi
+[ "$(dc exec -T workspace grep -c '^POST ' /tmp/hestia-litellm-stub.log)" = 1 ] || fail 'unavailable exact ID reached inference'
+ok 'unavailable exact model ID rejects after native discovery without starting inference or printing values'
 bash -x "$attach" --endpoint "$endpoint" --model "$model" --no-tty "$root/ws.yml" --version >"$root/trace.log" 2>&1 || fail 'traced caller failed'
 if grep -q HESTIA_FAKE_ "$root/trace.log"; then fail 'secret in enabled trace'; fi
 ok 'caller-enabled trace suppressed before secret access'
@@ -72,9 +100,10 @@ printf '%s\n' "$@" >>"$LITELLM_TEST_ARGS"
 args=("$@")
 for ((i=0; i<${#args[@]}-1; i++)); do
 	if [ "${args[$i]}" = workspace ] && [ "${args[$((i+1))]}" = omp ]; then
+        if [ "${args[$((i+2))]}" = models ]; then exec "$LITELLM_TEST_DOCKER" "$@"; fi
 		exec "$LITELLM_TEST_DOCKER" "${args[@]:0:$((i+1))}" bash -c '
 			test "$LITELLM_API_KEY" = HESTIA_FAKE_LITELLM_KEY &&
-			test "$LITELLM_BASE_URL" = https://hestia.invalid/v1 &&
+			[[ "$LITELLM_BASE_URL" = http://127.0.0.1:*/v1 ]] &&
 			test "$PI_CONFIG_FILES" = /opt/hestia/omp/litellm.yml &&
 			test -z "${AWS_ACCESS_KEY_ID:-}" &&
 			test -z "${OPENAI_API_KEY:-}" &&
@@ -89,18 +118,146 @@ PATH="$root/bin:$PATH" LITELLM_TEST_ARGS="$root/args.log" \
 	AWS_ACCESS_KEY_ID=HESTIA_FAKE_UNRELATED_AWS OPENAI_API_KEY=HESTIA_FAKE_UNRELATED_OPENAI \
 	"$attach" --endpoint "$endpoint" --model "$model" --no-tty "$root/ws.yml" --resume fixture-session >"$root/probe.log" 2>&1 || fail 'synthetic session environment forwarding failed'
 ok 'real exec session receives endpoint/key/overlay and no unrelated host provider keys'
-if grep -q 'HESTIA_FAKE_\|https://hestia.invalid' "$root/args.log"; then fail 'endpoint/key value in Docker argv'; fi
+if grep -q 'HESTIA_FAKE_\|http://127.0.0.1' "$root/args.log"; then fail 'endpoint/key value in Docker argv'; fi
 ok 'Docker argv forwards names, never endpoint/key values'
 python3 - "$root/args.log" "$model" <<'PY'
 import pathlib, sys
 args = pathlib.Path(sys.argv[1]).read_text().splitlines()
-start = args.index("omp")
+start = max(i for i, arg in enumerate(args) if arg == "omp")
 model = sys.argv[2]
-assert args[start:] == ["omp", "--provider", "litellm", "--model", model,
+assert args[start:] == ["omp", "--no-extensions", "--model", "litellm/" + model,
                        "--smol", "litellm/" + model, "--slow", "litellm/" + model,
                        "--resume", "fixture-session"], args[start:]
 PY
-ok 'exact caller model and native resume arguments reach provider/model/smol/slow roles'
+ok 'exact caller model and native resume arguments reach qualified model/smol/slow roles'
+# Every default model filename must reject before a credential
+# environment exec. Files are test-owned sentinels, not parsed or rewritten.
+for conflict in agent/models.yml agent/models.yaml agent/models.json; do
+    dc exec -T workspace bash -c 'mkdir -p "$(dirname "$HOME/.omp/$1")"; printf "HESTIA_FAKE_CONFLICT_CONTENT\n" >"$HOME/.omp/$1"' bash "$conflict"
+    PATH="$root/bin:$PATH" LITELLM_TEST_ARGS="$root/conflict-args.log" \
+        "$attach" --endpoint "$endpoint" --model "$model" --no-tty "$root/ws.yml" --version >"$root/conflict.log" 2>&1 && fail 'custom model configuration accepted'
+    grep -q 'custom model files' "$root/conflict.log" || fail 'conflict error not actionable'
+    if grep -q 'HESTIA_FAKE_' "$root/conflict.log"; then fail 'conflict contents printed'; fi
+    if grep -q '^LITELLM_API_KEY$' "$root/conflict-args.log"; then fail 'key environment forwarded despite conflict'; fi
+    dc exec -T workspace bash -c 'grep -qx HESTIA_FAKE_CONFLICT_CONTENT "$HOME/.omp/$1"' bash "$conflict" || fail 'conflicting native file changed'
+    dc exec -T workspace bash -c 'rm "$HOME/.omp/$1"' bash "$conflict"
+    rm "$root/conflict-args.log"
+done
+ok 'all default native model filenames reject before key handoff without reading, printing or changing files'
+
+state="$(dc config --format json | python3 -c 'import json,sys; print(next(m["source"] for m in json.load(sys.stdin)["services"]["workspace"]["volumes"] if m.get("target") == "/home/dev/.omp"))')"
+agent="$state/agent"
+blocked() {
+    rm -f "$root/blocked-args.log"
+    if PATH="$root/bin:$PATH" LITELLM_TEST_ARGS="$root/blocked-args.log" \
+        "$attach" --endpoint "$endpoint" --model "$model" --no-tty "$root/ws.yml" "$@" >"$root/blocked.log" 2>&1; then fail 'unsupported state or override accepted'; fi
+    grep -Eq 'unsupported|stored native|broker selection' "$root/blocked.log" || fail 'blocked error not actionable'
+    if grep -q HESTIA_FAKE_ "$root/blocked.log"; then fail 'blocked values exposed'; fi
+    if [ -f "$root/blocked-args.log" ] && grep -q '^LITELLM_API_KEY$' "$root/blocked-args.log"; then fail 'blocked key environment handed off'; fi
+}
+for override in --provider=other --model=other --smol=other --slow=other --plan=other --profile=other --config=other --cwd=other --session-dir=other --extension=other --api-key=HESTIA_FAKE_OVERRIDE; do blocked "$override" --version; done
+blocked --hook "$root/does-not-run.js" --version
+blocked --hook="$root/does-not-run.js" --version
+blocked --no-extensions=false --version
+ok 'caller routing, role, profile, storage, extension, hook and auth overrides fail before key handoff'
+for conflict in "$root/repo/.env" "$root/repo/.env.local" "$state/.env" "$agent/.env"; do
+    printf 'HESTIA_FAKE_DOTENV_CONTENT\n' >"$conflict"
+    blocked --version
+    grep -qx HESTIA_FAKE_DOTENV_CONTENT "$conflict" || fail 'dotenv file modified'
+    rm "$conflict"
+done
+ln -s /hestia-test-missing-target "$agent/models.yml"
+blocked --version
+[ -L "$agent/models.yml" ] || fail 'model symlink changed'
+rm "$agent/models.yml"
+ok 'known dotenv files and dangling model symlinks reject without reading or changing their contents'
+dc exec -T workspace omp config set setupVersion 2 >"$root/preferences-integration.log"
+dc exec -T workspace omp config set theme.dark serius >>"$root/preferences-integration.log"
+ok 'native setupVersion and safe appearance settings initialize through the supported CLI before ordinary database handoff/resume'
+python3 - "$agent/agent.db" "$root/auth-row-id" <<'PY_AUTH'
+import pathlib, sqlite3, sys
+with sqlite3.connect(sys.argv[1]) as db:
+    row = db.execute("INSERT INTO auth_credentials(provider,credential_type,data) VALUES ('litellm','api_key','{}')").lastrowid
+pathlib.Path(sys.argv[2]).write_text(str(row))
+PY_AUTH
+blocked --version
+python3 - "$agent/agent.db" "$root/auth-row-id" <<'PY_AUTH'
+import pathlib, sqlite3, sys
+row = int(pathlib.Path(sys.argv[2]).read_text())
+with sqlite3.connect(sys.argv[1]) as db:
+    assert db.execute("SELECT EXISTS(SELECT 1 FROM auth_credentials WHERE id=?)", (row,)).fetchone()[0] == 1
+    db.execute("DELETE FROM auth_credentials WHERE id=?", (row,))
+PY_AUTH
+python3 - "$agent/agent.db" <<'PY_SCHEMA'
+import sqlite3, sys
+with sqlite3.connect(sys.argv[1]) as db:
+    db.execute("INSERT INTO schema_version(version) VALUES (77)")
+PY_SCHEMA
+blocked --version
+python3 - "$agent/agent.db" <<'PY_SCHEMA'
+import sqlite3, sys
+with sqlite3.connect(sys.argv[1]) as db:
+    assert db.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 77
+    db.execute("DELETE FROM schema_version WHERE version=77")
+PY_SCHEMA
+printf 'HESTIA_FAKE_LEGACY_AUTH\n' >"$agent/auth.json"
+blocked --version
+grep -qx HESTIA_FAKE_LEGACY_AUTH "$agent/auth.json" || fail 'legacy auth file changed'
+rm "$agent/auth.json"
+ok 'active LiteLLM auth, unknown schema and conservative legacy auth presence reject before key handoff and remain preserved'
+# Broker controls inspect keys only, including empty selection and YAML forms;
+# safe loading rejects executable tags/aliases without running or altering them.
+for broker in 'auth: {broker: {url: ""}}' '"auth.broker.url": HESTIA_FAKE_BROKER' 'unsafe: !ruby/object:Object {}' 'first: &a {}
+second: *a'; do
+    target="$agent/config.yml"
+    if [ -f "$target" ]; then cp "$target" "$root/config-before-control"; fi
+    printf '%b\n' "$broker" >"$target"
+    cp "$target" "$root/broker-control"
+    blocked --version
+    cmp "$target" "$root/broker-control" || fail 'broker settings file modified'
+    if [ -f "$root/config-before-control" ]; then mv "$root/config-before-control" "$target"; else rm "$target"; fi
+done
+mkdir -p "$root/repo/.omp"
+printf '{"auth.broker.url":"HESTIA_FAKE_PROJECT_BROKER"}\n' >"$root/repo/.omp/settings.json"
+blocked --version
+grep -q HESTIA_FAKE_PROJECT_BROKER "$root/repo/.omp/settings.json" || fail 'legacy project setting changed'
+rm "$root/repo/.omp/settings.json"
+ok 'nested/dotted broker metadata, legacy project JSON and unsafe YAML reject before key handoff while settings bytes remain intact'
+# Preserve the native YAML, then add only test-owned legacy metadata. The
+# presence-only database check must reject migration before a native CLI runs.
+for config in config.yml config.yaml; do if [ -f "$agent/$config" ]; then mv "$agent/$config" "$root/saved-$config"; fi; done
+python3 - "$agent/agent.db" <<'PY_LEGACY'
+import sqlite3, sys
+with sqlite3.connect(sys.argv[1]) as db:
+    db.execute("INSERT INTO settings(key,value) VALUES ('hestia_test_legacy','{}')")
+PY_LEGACY
+blocked --version
+python3 - "$agent/agent.db" <<'PY_LEGACY'
+import sqlite3, sys
+with sqlite3.connect(sys.argv[1]) as db:
+    assert db.execute("SELECT EXISTS(SELECT 1 FROM settings WHERE key='hestia_test_legacy')").fetchone()[0] == 1
+    db.execute("DELETE FROM settings WHERE key='hestia_test_legacy'")
+PY_LEGACY
+for config in config.yml config.yaml; do if [ -f "$root/saved-$config" ]; then mv "$root/saved-$config" "$agent/$config"; fi; done
+ok 'nonempty legacy SQLite settings without native YAML reject without migration or row modification'
+# Real native JSONL creation/resume against the same fixed fake response proves
+# ordinary database/session state is permitted; this is not agent acceptance.
+"$attach" --endpoint "$endpoint" --model "$model" --no-tty "$root/ws.yml" \
+    --no-tools --no-skills --no-lsp --no-title --max-time 45s -p 'Create a synthetic protocol session.' >"$root/native-session.log" 2>&1 || fail 'synthetic native session creation failed'
+session="$(dc exec -T workspace find /home/dev/.omp/agent/sessions -name '*.jsonl' -print -quit)"
+[ -n "$session" ] || fail 'native completed session not persisted'
+"$attach" --endpoint "$endpoint" --model "$model" --no-tty "$root/ws.yml" --resume "$session" \
+    --no-tools --no-skills --no-lsp --no-title --max-time 45s -p 'Resume the synthetic protocol session.' >"$root/native-resume.log" 2>&1 || fail 'synthetic native saved-session resume failed'
+grep -q HESTIA_LOCAL_STUB_OK "$root/native-session.log" && grep -q HESTIA_LOCAL_STUB_OK "$root/native-resume.log" || fail 'native saved/resumed completion missing'
+dc exec -T workspace cat "$session" >"$root/native-session.jsonl"
+python3 - "$root/native-session.jsonl" <<'PY_SESSION'
+import json, pathlib, sys
+records = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines()]
+assert sum(r.get("type") == "session" for r in records) == 1
+assert sum(r.get("message", {}).get("role") == "assistant" for r in records) == 2
+PY_SESSION
+ok 'ordinary native database allows real synthetic saved-session creation and exact JSONL resume with two completed responses'
+
 dc exec -T workspace bash -c 'test -z "${LITELLM_API_KEY:-}" && test -z "${LITELLM_BASE_URL:-}" && test "$PI_CONFIG_FILES" = /opt/hestia/omp/config.yml' || fail 'credentials or overlay leaked into a separate attach'
 ok 'separate attach retains default overlay and receives no LiteLLM credentials'
 dc exec -T -e PI_CONFIG_FILES=/opt/hestia/omp/litellm.yml workspace omp config get disabledProviders >"$root/litellm-providers.json"
@@ -163,4 +320,4 @@ ok 'recreation retains selected marker/native settings and no session credential
 dc exec -T workspace mise trust "$root/repo" >/dev/null
 "$attach" --endpoint "$endpoint" --model "$model" --no-tty "$root/ws.yml" --version >"$root/after-version.log" 2>&1 || fail 'explicit re-trust did not restore native CLI'
 ok 'explicit native mise trust works after recreation'
-echo "passed: $pass, failed: 0; authenticated inference/session resume: NOT RUN"
+echo "passed: $pass, failed: 0; real endpoint agent acceptance: NOT RUN"
