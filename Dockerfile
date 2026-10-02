@@ -131,7 +131,7 @@ RUN mise install --yes \
  && rm -rf /tmp/fixture-src /tmp/hestia-build-cache
 
 # XJVWF4K — optional agent layer: omp (oh-my-pi, TG7VZBV decision; AWS Bedrock
-# only this phase). Installed through mise like every other declared tool and
+# by default, with a user-opted-in LiteLLM overlay below). Installed through mise like every other declared tool and
 # verified against the pinned release-API digest of omp-linux-arm64; the
 # binary must report the pinned version. The provider restriction
 # (agent/omp/config.yml: everything except bedrock disabled) ships root-owned
@@ -169,3 +169,13 @@ RUN mise install --yes \
  && omp --version | grep -qF "${OMP_VERSION#v}" \
  && echo "${OMP_SHA256}  $omp_bin" | sha256sum --strict --check -
 RUN omp --version && echo "agent layer ok"
+
+# AWCEX5Z — user-selected LiteLLM alternative, opt-in at attach only.
+# Derive from the same provider list; the default Bedrock overlay is unchanged.
+# No endpoint, model, credential or writable native settings are baked here.
+# setupVersion 2 is omp 18.1.16's supported onboarding completion marker.
+USER root
+RUN sed '/^#/d; /^  - "litellm"$/d' /opt/hestia/omp/config.yml > /opt/hestia/omp/litellm.yml \
+ && printf '  - "bedrock"\nsetupVersion: 2\n' >> /opt/hestia/omp/litellm.yml \
+ && chmod 0644 /opt/hestia/omp/litellm.yml
+USER dev
