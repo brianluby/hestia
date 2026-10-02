@@ -57,7 +57,10 @@ suppressed. Endpoint/key values remain absent from Docker argv, tracing,
 Compose, selected durable state and image/container configuration. Separate
 attaches and recreation received no session credentials. Actual fixture
 `go build ./...` and `go test -count=1 ./...` passed; recreation preserved native
-settings/marker and still required explicit native mise trust.
+settings/marker and still required explicit native mise trust. Native saved-session
+creation/resume completed before recreation. Post-recreation checks covered
+marker/settings/key isolation and native `--version` after trust; no further
+native session response or inference ran after recreation.
 
 The default scoped profile rejects exported XDG/native-path redirection.
 Pinned [directory resolution](https://github.com/can1357/oh-my-pi/blob/61b1b8aef634334eaf1412afd003a763e1d1b9c1/packages/utils/src/dirs.ts#L339-L372)
