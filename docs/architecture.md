@@ -2,7 +2,7 @@
 
 [Overview](../README.md) · [Milestone 1](milestone-1.md) · [Roadmap](roadmap.md)
 
-**Status:** design accepted 2026-09-09; fixture foundation and optional omp layer implemented with macOS arm64 evidence. Real agent authentication/resume and Argus acceptance remain pending. Targets: Apple Silicon macOS and Windows/WSL2; the latter is unverified and Argus's work-laptop platform is unconfirmed.
+**Status:** design accepted 2026-09-09; fixture foundation and optional omp layer implemented with macOS arm64 evidence. The [native LiteLLM fixture proof](m1-apple-silicon-evidence-v2.md) verifies authenticated assisted work and saved-session resume. Bedrock authentication and Argus acceptance remain pending. Targets: Apple Silicon macOS and Windows/WSL2; the latter is unverified and Argus's work-laptop platform is unconfirmed.
 
 ## Shared foundation
 
@@ -76,7 +76,7 @@ Keep Git authentication separate: use a scoped credential helper or supported SS
 
 **Consequences:** some workspaces need separate login. Deliberate credential sharing can follow a demonstrated need. Agents can access credentials supplied to them; containerization adds no separate protection against that authorized access. Logout/revocation must preserve source and unrelated sessions. Back up useful state; prefer reauthentication on restore. If required state mixes credentials with sessions, treat its backup as sensitive and encrypt it. Full backup/restore follows the pilot.
 
-The selected integration is omp with AWS Bedrock. `~/.omp` is workspace-scoped writable state; root-owned `/opt/hestia/omp/config.yml` loads through `PI_CONFIG_FILES` after global/project settings and before runtime overrides. This upstream overlay mechanism replaces the read-only settings bind that broke atomic settings writes. It is not a security boundary against control of the process environment or runtime overrides. Settings persistence is exercised; real credential-chain use and native session resume are not.
+The selected integration is omp with AWS Bedrock. `~/.omp` is workspace-scoped writable state; root-owned `/opt/hestia/omp/config.yml` loads through `PI_CONFIG_FILES` after global/project settings and before runtime overrides. This upstream overlay mechanism replaces the read-only settings bind that broke atomic settings writes. It is not a security boundary against control of the process environment or runtime overrides. Settings persistence is exercised; real Bedrock credential-chain use remains unverified. The explicit LiteLLM attach opt-in passes authenticated fixture edits, recreation and native saved-session resume; see the [native LiteLLM fixture proof](m1-apple-silicon-evidence-v2.md).
 
 ## ADR-005: Lifecycle preserves work
 
@@ -99,7 +99,7 @@ Tests use unique disposable identities and synthetic storage, never production r
 ## Remaining implementation choices
 
 - User/work laptop: OS/CPU, available runtime and Argus build/tests/services. Argus remains employer-local.
-- Agent acceptance: runtime AWS credentials, login/refresh behavior, a real agent-assisted change and native session resumption across recreation. omp/Bedrock and its state/overlay paths are already selected.
+- Provider acceptance: the native LiteLLM fixture journey passes; real Bedrock credentials/login/refresh and employer-local agent configuration remain unverified. The existing default overlay and separate Git authentication remain.
 - Later: project-specific tools/services beyond fixture Go, backup mechanism and broader Windows/WSL2 matrix. No broader support/performance claims are established here.
 
 ## Primary references

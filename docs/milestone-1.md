@@ -2,7 +2,7 @@
 
 [Overview](../README.md) · [Architecture](architecture.md) · [Roadmap](roadmap.md)
 
-**Status:** fixture foundation and optional omp layer implemented; Milestone 1 acceptance incomplete. macOS arm64 fixture/runtime and omp settings-persistence evidence is recorded in the [evidence log](evidence.md). Real AWS authentication, agent-assisted work, native session resume and the Argus pilot remain pending.
+**Status:** fixture foundation and optional omp layer implemented; Milestone 1 acceptance incomplete. macOS arm64 fixture/runtime and omp settings-persistence evidence is recorded in the [evidence log](evidence.md). The [native LiteLLM fixture proof](m1-apple-silicon-evidence-v2.md) verifies real assisted edits, recreation and saved-session resume. Bedrock authentication and the Argus pilot remain pending.
 
 ## Problem and goals
 
@@ -17,7 +17,7 @@ Success means:
 
 ## Evidence stages
 
-**1A — Nonproprietary foundation:** the synthetic Go repository on the available Apple Silicon Mac exercises a real build/test, a mise-managed toolchain, dirty Git states and linked worktrees. Its image, mounts and lifecycle have runtime evidence; real omp/Bedrock authentication and native session resume remain unverified. Fixture success does not establish Argus compatibility. No employer source, credentials or endpoints are required here.
+**1A — Nonproprietary foundation:** the synthetic Go repository on the available Apple Silicon Mac exercises a real build/test, a mise-managed toolchain, dirty Git states and linked worktrees. Its image, mounts and lifecycle have runtime evidence; authenticated native omp/LiteLLM edits and saved-session resume after recreation pass the linked proof. Bedrock authentication remains unverified. Fixture success does not establish Argus compatibility. No employer source, credentials or endpoints are required here.
 
 **1B — Argus pilot:** run on the work laptop after its platform, runtime, agent and project requirements are known. Keep Argus source, credentials, internal endpoints and employer-specific configuration there. Use its existing build/test workflow and required services. Retain detailed evidence there; portable Hestia docs contain only sanitized outcomes and limitations appropriate to share.
 
@@ -75,8 +75,8 @@ Nice-to-have: concise task aliases after underlying operations work. They do not
 | Input / owner | Needed by | State |
 | --- | --- | --- |
 | Work laptop OS/CPU and available runtime — user | Argus integration | Unknown; does not block 1A |
-| Native omp/Bedrock authentication and session acceptance — user + implementation | Complete agent acceptance | Agent and state/overlay paths selected; real runtime credentials, assisted change and resume evidence remain |
+| Native agent acceptance — user + implementation | Complete agent acceptance | User-selected omp/LiteLLM fixture proof passes; Bedrock authentication remains unverified |
 | Argus toolchain, build/test commands, services and network needs — user on work laptop | Argus integration | Unknown; remains employer-local |
 | Foundation implementation — implementation | Extend beyond fixture | Debian/mise, fixture Go, canonical files, identity encoding and non-root scoped mounts implemented; see architecture and evidence |
 
-Next: complete the selected agent's authenticated fixture change/recreation/resume journey, then employer-local Argus configuration and acceptance. Preserve the established image, source/identity/mount and lifecycle contracts. No deadline or duration has been set.
+Next: employer-local Argus configuration and acceptance using the selected supported provider. Preserve the established image, source/identity/mount and lifecycle contracts. No deadline or duration has been set.
