@@ -198,16 +198,19 @@ Export `LITELLM_API_KEY` on the host through your existing secret source, then
 use an explicitly selected endpoint and model:
 
 ```sh
-workspace/workspace-attach-litellm.sh --endpoint <URL> --model <ID> <file>
+workspace/workspace-attach-litellm.sh --endpoint <URL> --model <ID> [--trace-id <UUID>] <file>
 # Native arguments remain available, including explicit saved-session resume:
 workspace/workspace-attach-litellm.sh --endpoint <URL> --model <ID> <file> --resume <session-id-or-path>
 ```
 
 This invokes native omp directly. `--no-tty` supports scripted native `-p`
-work. The helper requires a nonempty key, passes only the key/endpoint and
-selected policy environment to that exec, and selects the exact LiteLLM
-main/small/slow model roles. Endpoint and key values stay out of Docker
-arguments and generated files. The image-owned LiteLLM overlay enables only
+work. The helper requires a nonempty key, forwards key/endpoint/trace and
+selected policy environment to that exec, and selects exact LiteLLM
+main/small/slow roles. It generates a fresh UUID for the required
+`x-litellm-trace-id` header unless `--trace-id` supplies one. Values stay out
+of Docker arguments and generated Compose files. The non-secret endpoint
+appears in temporary native provider configuration; no key value is written
+there. The image-owned LiteLLM overlay enables only
 that built-in provider and skips pinned onboarding; ordinary attaches retain
 the default Bedrock overlay. No host models.yml, auth database or home is
 copied or mounted. Permission/session controls remain native.
@@ -233,12 +236,23 @@ appearance preferences remain usable. Use fresh default scoped workspace state
 or deliberately resolve the conflicting native configuration yourself before
 retrying; do not change routing configuration concurrently with handoff.
 
-Every attach then runs native `omp models litellm --json --no-extensions` with
-the selected endpoint/key, requires the exact model ID, and launches qualified
-main/small/slow roles. This can contact the selected endpoint for discovery
-when its native cache is absent or stale; raw discovery payloads/errors are
-suppressed. The guards do not modify state. Subsequent native discovery and
-omp normally initialize/update their own settings, database and model caches.
+After these read-only guards, the image-owned wrapper exclusively locks the
+default agent directory and temporarily publishes its own `models.yml`
+symlink to a private container `/tmp` file. This native configuration declares
+only the existing LiteLLM provider, selected endpoint, LiteLLM discovery and
+environment-name references; it defines no custom models or credential value.
+Native metadata supplies capabilities and API routing. Discovery and inference
+receive the trace header; the key remains in the process environment.
+
+Every attach runs native `omp models litellm --json --no-extensions`, requires
+the exact model ID, and launches qualified main/small/slow roles. Raw discovery
+payloads/errors are suppressed. Native omp updates its own settings, database
+and model caches. Normal exit or caught signals remove wrapper-owned temporary
+configuration and lock, preserving any replacement native file. Concurrent
+handoffs to this profile are rejected. Forced termination such as SIGKILL can
+retain the pointer and lock; stop the old process and deliberately resolve
+those helper-owned entries before retrying. Existing native configuration is
+never overwritten.
 
 Each attach/recreation needs another explicit handoff; revoke/refresh the key
 through its existing provider. Runtime environment remains visible to the
