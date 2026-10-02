@@ -106,7 +106,8 @@ The extraction safety filter changes regular-file permissions; the fixture
 reapplies recorded non-symlink modes before checking fidelity. Owner IDs, ACLs,
 extended attributes and service-specific restore are outside this proof.
 
-The exercised fixture test and sanitized receipt are recorded with `R3N7X5F`.
+The [executed fixture receipt](evidence/backup-restore-2026-10-02.md) records the
+78-check capture and fresh restore proof for `B6J27FG` / `R3N7X5F`.
 This procedure proves selected synthetic state fidelity; it does not establish
 native authenticated omp session resume, Argus compatibility, Windows/WSL2
 support, or completion of the earlier native-agent milestone.
