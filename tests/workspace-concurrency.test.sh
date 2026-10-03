@@ -20,13 +20,17 @@ root="$(mktemp -d "$tmp_base/hestia-concurrency-XXXXXXXX")"
 export HESTIA_STATE_ROOT="$root/state"
 pass=0
 fail=0
+# Record a successful check and increment the pass count.
 ok() { echo "ok   - $1"; pass=$((pass + 1)); }
+# Record a failed check while allowing independent checks to continue.
 bad() { echo "FAIL - $1"; fail=$((fail + 1)); }
+# Run a labeled assertion and record its result.
 check() {
 	local label="$1"
 	shift
 	if "$@"; then ok "$label"; else bad "$label"; fi
 }
+# Run Compose against only the selected fixture workspace.
 dc() {
 	local slot="$1"
 	shift
@@ -43,6 +47,7 @@ snapshot() {
 	GIT_INDEX_FILE="$root/$slot.observation-index" GIT_OPTIONAL_LOCKS=0 \
 		"$here/fixtures/bin/fixture-snapshot.sh" "$operation" "$repo" "$root/$slot.snapshot"
 }
+# Remove only this run's containers, networks and disposable cache volumes.
 cleanup_resources() {
 	local slot id
 	for slot in a b; do
@@ -52,6 +57,7 @@ cleanup_resources() {
 		docker volume rm "${id}_linux-caches" >/dev/null 2>&1 || true
 	done
 }
+# Preserve diagnostic receipts whenever the run fails or retention is requested.
 cleanup() {
 	local status=$?
 	cleanup_resources
