@@ -99,7 +99,11 @@ for slot in a b; do
 	git -C "$repo" -c user.name="Hestia Fixture" -c user.email=hestia-fixture@invalid -c commit.gpgsign=false commit -qm "synthetic fixture $slot"
 	"$here/workspace/workspace-compose.sh" --image "$image" --out "$root/$slot.yml" "$repo"
 	"$here/identity/workspace-id.sh" "$repo" >"$root/$slot.identity"
-	"$here/workspace/workspace-lifecycle.sh" start "$root/$slot.yml" >"$root/$slot.start.log" 2>&1
+	"$here/workspace/workspace-lifecycle.sh" start "$root/$slot.yml" >"$root/$slot.start.log" 2>&1 || {
+		start_status=$?
+		cat "$root/$slot.start.log" >&2
+		exit "$start_status"
+	}
 	dc "$slot" ps -q workspace >"$root/$slot.cid"
 	docker inspect "$(cat "$root/$slot.cid")" >"$root/$slot.inspect.json"
 done
@@ -206,42 +210,44 @@ if [ "$mode" = recreate ]; then
 		sleep 1
 	done
 	check "neighbor useful workload started" test "$ready" = 1
-	before_progress="$(dc b exec -T workspace sh -c 'wc -l </tmp/neighbor-progress')"
-	date -u +%s >"$root/recreate.started"
-	if "$here/workspace/workspace-lifecycle.sh" recreate "$root/a.yml" >"$root/a.recreate.log" 2>&1; then
-		ok "A recreation completes during B workload"
-	else
-		cat "$root/a.recreate.log"
-		bad "A recreation failed"
+	if [ "$ready" -eq 1 ]; then
+		before_progress="$(dc b exec -T workspace sh -c 'wc -l </tmp/neighbor-progress')" || before_progress=""
+		date -u +%s >"$root/recreate.started"
+		if "$here/workspace/workspace-lifecycle.sh" recreate "$root/a.yml" >"$root/a.recreate.log" 2>&1; then
+			ok "A recreation completes during B workload"
+		else
+			cat "$root/a.recreate.log"
+			bad "A recreation failed"
+		fi
+		date -u +%s >"$root/recreate.finished"
+		after_a="$(dc a ps -q workspace)"
+		after_b="$(dc b ps -q workspace)"
+		check "recreated A container identity changed" test "$after_a" != "$(cat "$root/a.cid")"
+		check "neighbor B container identity unchanged" test "$after_b" = "$(cat "$root/b.cid")"
+		check "neighbor workload still active after A recreation" kill -0 "$neighbor_pid"
+		after_progress="$(dc b exec -T workspace sh -c 'wc -l </tmp/neighbor-progress')" || after_progress=""
+		check "neighbor completed build/tests within A recreation interval" test "$after_progress" -gt "$before_progress"
+		printf "success events before=%s after=%s\n" "$before_progress" "$after_progress" >"$root/neighbor-overlap.txt"
+		dc b exec -T workspace touch /tmp/neighbor-finish
+		if wait "$neighbor_pid"; then ok "neighbor concurrent build/test loop exits successfully"
+		else bad "neighbor concurrent build/test loop failed"
+		fi
+		dc b exec -T workspace cat /tmp/neighbor-progress >"$root/b.concurrent-progress"
+		neighbor_pid=""
+		check "recreated A builds/tests successfully" dc a exec -T workspace bash -c 'mise trust "$PWD" >/dev/null && go build ./... && go test -count=1 ./...'
+		for slot in a b; do
+			state="$HESTIA_STATE_ROOT/$(sed -n 's/^name: //p' "$root/$slot.yml")"
+			(cd "$state" && find . -type f -exec shasum -a 256 {} + | sort) >"$root/$slot.state.after"
+			check "$slot all selected durable state bytes unchanged" cmp "$root/$slot.state.before" "$root/$slot.state.after"
+			check "$slot source/index/HEAD/branch/untracked snapshot unchanged" snapshot compare "$slot"
+			docker volume inspect --format '{{.CreatedAt}} {{.Mountpoint}}' "$(sed -n 's/^name: //p' "$root/$slot.yml")_linux-caches" >"$root/$slot.cache.after"
+			check "$slot cache volume retains identity" cmp "$root/$slot.cache.before" "$root/$slot.cache.after"
+			dc "$slot" exec -T workspace env GIT_OPTIONAL_LOCKS=0 git status --porcelain=v2 --branch >"$root/$slot.final-status"
+			check "$slot final host/container Git status agrees" cmp "$root/$slot.snapshot/status.porcelain-v2" "$root/$slot.final-status"
+			docker inspect "$(dc "$slot" ps -q workspace)" >"$root/$slot.after.inspect.json"
+		done
+		check "B network identity retained" bash -c 'test "$(docker inspect -f "{{range .NetworkSettings.Networks}}{{.NetworkID}}{{end}}" "$1")" = "$2"' _ "$after_b" "$(python3 -c 'import json,sys; print(next(iter(json.load(open(sys.argv[1]))[0]["NetworkSettings"]["Networks"].values()))["NetworkID"])' "$root/b.inspect.json")"
 	fi
-	date -u +%s >"$root/recreate.finished"
-	after_a="$(dc a ps -q workspace)"
-	after_b="$(dc b ps -q workspace)"
-	check "recreated A container identity changed" test "$after_a" != "$(cat "$root/a.cid")"
-	check "neighbor B container identity unchanged" test "$after_b" = "$(cat "$root/b.cid")"
-	check "neighbor workload still active after A recreation" kill -0 "$neighbor_pid"
-	after_progress="$(dc b exec -T workspace sh -c 'wc -l </tmp/neighbor-progress')"
-	check "neighbor completed build/tests within A recreation interval" test "$after_progress" -gt "$before_progress"
-	printf "success events before=%s after=%s\n" "$before_progress" "$after_progress" >"$root/neighbor-overlap.txt"
-	dc b exec -T workspace touch /tmp/neighbor-finish
-	if wait "$neighbor_pid"; then ok "neighbor concurrent build/test loop exits successfully"
-	else bad "neighbor concurrent build/test loop failed"
-	fi
-	dc b exec -T workspace cat /tmp/neighbor-progress >"$root/b.concurrent-progress"
-	neighbor_pid=""
-	check "recreated A builds/tests successfully" dc a exec -T workspace bash -c 'mise trust "$PWD" >/dev/null && go build ./... && go test -count=1 ./...'
-	for slot in a b; do
-		state="$HESTIA_STATE_ROOT/$(sed -n 's/^name: //p' "$root/$slot.yml")"
-		(cd "$state" && find . -type f -exec shasum -a 256 {} + | sort) >"$root/$slot.state.after"
-		check "$slot all selected durable state bytes unchanged" cmp "$root/$slot.state.before" "$root/$slot.state.after"
-		check "$slot source/index/HEAD/branch/untracked snapshot unchanged" snapshot compare "$slot"
-		docker volume inspect --format '{{.CreatedAt}} {{.Mountpoint}}' "$(sed -n 's/^name: //p' "$root/$slot.yml")_linux-caches" >"$root/$slot.cache.after"
-		check "$slot cache volume retains identity" cmp "$root/$slot.cache.before" "$root/$slot.cache.after"
-		dc "$slot" exec -T workspace env GIT_OPTIONAL_LOCKS=0 git status --porcelain=v2 --branch >"$root/$slot.final-status"
-		check "$slot final host/container Git status agrees" cmp "$root/$slot.snapshot/status.porcelain-v2" "$root/$slot.final-status"
-		docker inspect "$(dc "$slot" ps -q workspace)" >"$root/$slot.after.inspect.json"
-	done
-	check "B network identity retained" bash -c 'test "$(docker inspect -f "{{range .NetworkSettings.Networks}}{{.NetworkID}}{{end}}" "$1")" = "$2"' _ "$after_b" "$(python3 -c 'import json,sys; print(next(iter(json.load(open(sys.argv[1]))[0]["NetworkSettings"]["Networks"].values()))["NetworkID"])' "$root/b.inspect.json")"
 fi
 
 cleanup_resources
