@@ -55,3 +55,32 @@ the disposable reader's `/tmp` agent directory; isolation and the read-only
 single-file mount protect the host source. It is not a read-only native CLI
 operation against arbitrary agent state. Source references: [native config initialization](https://github.com/can1357/oh-my-pi/blob/61b1b8aef634334eaf1412afd003a763e1d1b9c1/packages/coding-agent/src/cli/config-cli.ts#L243-L264)
 and [native settings format/precedence](https://github.com/can1357/oh-my-pi/blob/61b1b8aef634334eaf1412afd003a763e1d1b9c1/docs/settings.md).
+
+## Preference review fixes (WF6TXF9, 2026-10-03)
+
+CodeRabbit review of `cc0de3b` identified an inverted-grep test that could miss
+an excluded value, private source readability under the image UID, and a
+partial destination file after a failed write. The helper now runs the
+single-file reader as the host UID/GID, resolves the image-installed omp through
+mise, and isolates native home/addon extraction and settings under `/tmp`.
+The host completes a mode-0600 temporary file before publishing the exact
+native settings path with an exclusive hard link; failure removes only the
+owned temporary file and permits a retry. Host Python 3 is required for this
+publication step. Existing or concurrently created native state is preserved.
+
+- Platform: Darwin 27.0.0 arm64; Docker client 29.8.2 / server 29.5.2;
+  Compose 5.6.0. Existing image `hestia-agent:06174h1`, ID
+  `sha256:5e150fac2f682cf8eecf99b6aa5ae65b3a70cb2266bfe4eb2d13cd620a07f316`.
+- `rtk proxy env HESTIA_AGENT_TEST_IMAGE=hestia-agent:06174h1 KEEP_ARTIFACTS=1 bash tests/workspace-omp-preferences.test.sh`, exit 0, 16 passed / 0 failed.
+  The original appearance, exclusions, native writes/policy and recreation
+  checks pass with a private mode-0600 source and destination. Additional
+  controls verify an excluded sentinel makes the test gate fail, a partial
+  write publishes no settings and leaves no temporary file, a retry succeeds,
+  and publication preserves a racing file, directory or symlink.
+- Bash syntax, embedded Python parsing and `git diff --check` pass. Concise
+  purpose comments cover the touched helper/test functions.
+
+Only disposable synthetic configuration and resources were used. No real
+host preferences or credentials were read; this adds no authenticated-agent,
+Argus or broader platform acceptance claim. The earlier receipts remain
+historical results for their respective source versions.
