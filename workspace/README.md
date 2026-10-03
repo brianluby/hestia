@@ -276,12 +276,17 @@ workspace/workspace-omp-preferences.sh \
 
 The only accepted keys are `theme.dark`, `theme.light`, `composer.shape`,
 `symbolPreset`, `colorBlindMode` and `statusLine.preset`. Select each key
-explicitly. The helper requires host `jq`, Docker/Compose and the workspace's
-local image. A network-disabled disposable container runs that image's
-`omp config get` against exactly the supplied read-only file with isolated
-agent/cwd directories. It writes only selected appearance leaves into a new,
-mode-0600 native `omp/agent/config.yml`; the JSON mapping is valid YAML and
-native omp settings commands remain writable. Missing source keys resolve
+explicitly. The helper requires host `jq`, Python 3, Docker/Compose and the
+workspace's local image. A network-disabled disposable container resolves the
+image-installed omp through mise, then runs its `config get` against exactly
+the supplied read-only file with isolated `/tmp` home, agent and cwd directories.
+The reader runs as the host UID/GID so private mode-0600
+source files remain readable without changing their permissions. The helper
+finishes a private mode-0600 write before publishing an exact new native
+`omp/agent/config.yml` through an exclusive hard link. A failed write leaves no
+native config and can be retried; a concurrent destination is preserved.
+The JSON mapping is valid YAML and native omp settings commands remain writable.
+Missing source keys resolve
 to the pinned upstream default. Source contents and imported values are not
 printed. Only the supplied file is briefly exposed to the reader; its path
 is absent from the workspace Compose file and runtime mounts.
