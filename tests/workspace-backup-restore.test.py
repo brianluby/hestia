@@ -29,6 +29,7 @@ ROOT = None
 
 
 def run(*args, env=None):
+    """Run a fixture command, record its exit status, and fail on errors."""
     argv = [str(a) for a in args]
     print("+ " + shlex.join(argv), flush=True)
     result = subprocess.run(argv, env=env or ENV, text=True,
@@ -42,6 +43,7 @@ def run(*args, env=None):
 
 
 def check(condition, message):
+    """Count and report one acceptance assertion, raising on failure."""
     global PASS
     if not condition:
         raise AssertionError(message)
@@ -50,6 +52,7 @@ def check(condition, message):
 
 
 def inventory(directory):
+    """Describe raw bytes, modes, directory entries, and symlink targets."""
     result = {}
     for path in sorted(directory.rglob("*")):
         rel = path.relative_to(directory).as_posix()
@@ -68,10 +71,12 @@ def inventory(directory):
 
 
 def sha(path):
+    """Return a file's SHA-256 over its raw bytes."""
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def generate(tree, state_root, compose):
+    """Generate scoped Compose/state paths and register test-owned resources."""
     env = dict(ENV, HESTIA_STATE_ROOT=str(state_root))
     run(HERE / "workspace/workspace-compose.sh", "--image", IMAGE,
         "--out", compose, tree, env=env)
@@ -82,18 +87,22 @@ def generate(tree, state_root, compose):
 
 
 def dc(project, compose, *args):
+    """Run Compose for the explicitly named fixture project and file."""
     return run("docker", "compose", "-p", project, "-f", compose, *args)
 
 
 def git(tree, *args):
+    """Run Git in the explicitly selected synthetic checkout."""
     return run("git", "-C", tree, *args)
 
 
 def snapshot(tree, target):
+    """Capture the fixture helper's source and Git preservation snapshot."""
     run(HERE / "fixtures/bin/fixture-snapshot.sh", "capture", tree, target)
 
 
 def compare_snapshot(tree, expected, destination, old_root, new_root):
+    """Compare snapshots, allowing only the recorded worktree path relocation."""
     snapshot(tree, destination)
     for file in expected.iterdir():
         before = file.read_bytes()
@@ -104,12 +113,14 @@ def compare_snapshot(tree, expected, destination, old_root, new_root):
 
 
 def build(project, compose):
+    """Trust the inspected fixture and build/test it inside its workspace."""
     dc(project, compose, "exec", "-T", "workspace", "bash", "-c",
        'mise trust >/dev/null && mise exec -- go version && '
        'mise exec -- go build ./... && mise exec -- go test ./...')
 
 
 def main():
+    """Exercise quiesced capture, fresh restore, relocation, and runtime fidelity."""
     global ROOT
     for prerequisite in ("docker", "git", "python3"):
         if not shutil.which(prerequisite):
