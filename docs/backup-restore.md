@@ -89,8 +89,13 @@ again and recapture rather than accepting a partial archive.
 Run the self-contained fixture from the Hestia checkout on a Docker-shared path:
 
 ```sh
-rtk proxy env KEEP_ARTIFACTS=1 python3 tests/workspace-backup-restore.test.py
+env KEEP_ARTIFACTS=1 python3 tests/workspace-backup-restore.test.py
 ```
+
+The historical receipt records the machine paths and `rtk`-wrapped command
+used for that observed run. To reproduce it, use the portable command above
+and your own `$HOME`-based storage or an explicitly chosen absolute
+`HESTIA_TEST_ROOT`; the fixture prints the new receipt path.
 
 It requires host Git/Python (with tar extraction filters), reachable Docker and
 Compose, and the existing canonical `hestia-agent:2026-09-10` image. It performs
