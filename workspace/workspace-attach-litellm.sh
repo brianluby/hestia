@@ -4,10 +4,12 @@
 set +x
 set -euo pipefail
 
+# Describe the supported handoff arguments and reject invalid usage.
 usage() {
 	echo 'usage: workspace-attach-litellm.sh --endpoint URL --model ID [--trace-id UUID] [--no-tty] [--no-stdin] <compose-file> [omp-args...]' >&2
 	exit 2
 }
+# Report a bounded error without printing caller-supplied sensitive values.
 fail() { echo "workspace-attach-litellm: $*" >&2; exit 1; }
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 endpoint=''

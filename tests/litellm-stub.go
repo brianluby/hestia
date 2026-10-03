@@ -16,6 +16,7 @@ const expectedTrace = "11111111-2222-4333-8444-555555555555"
 
 var uuidPattern = regexp.MustCompile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
+// main serves a disposable loopback protocol fixture and logs assertions only.
 func main() {
 	log, err := os.Create("/tmp/hestia-litellm-stub.log")
 	if err != nil {
