@@ -9,8 +9,11 @@ mkdir -p "$HOME/.cache/hestia-litellm-tests"
 root="$(mktemp -d "$HOME/.cache/hestia-litellm-tests/run-XXXXXXXX")"
 project=''
 pass=0
+# Stop on the first failed assertion with a nonzero suite result.
 fail() { echo "FAIL - $*" >&2; exit 1; }
+# Count an assertion only after its checks have passed.
 ok() { echo "ok - $*"; pass=$((pass+1)); }
+# Remove test-owned Docker resources; retain receipts on failure or request.
 cleanup() {
 	local status=$?
 	if [ -n "$project" ]; then
@@ -32,6 +35,7 @@ sed -i.bak '/^  workspace:$/a\
 rm "$root/ws.yml.bak"
 project="$(sed -n 's/^name: //p' "$root/ws.yml")"
 "$here/workspace/workspace-lifecycle.sh" start "$root/ws.yml" >"$root/start.log" 2>&1
+# Scope every Compose operation to this suite's disposable workspace.
 dc() { docker compose -p "$project" -f "$root/ws.yml" "$@"; }
 attach="$here/workspace/workspace-attach-litellm.sh"
 {
@@ -72,6 +76,7 @@ for invalid in HESTIA_FAKE_TRACE '-bad' '11111111-2222-4333-8444-55555555555' $'
     if grep -q HESTIA_FAKE_ "$root/trace-id-error.log"; then fail 'invalid trace value printed'; fi
 done
 ok 'explicit trace ID rejects malformed/multiline values without printing them'
+# Verify the completed handoff left no owned configuration, lock or temp tree.
 clean_transient() {
     dc exec -T workspace bash -c 'test ! -e "$HOME/.omp/agent/models.yml" && test ! -L "$HOME/.omp/agent/models.yml" && test ! -e "$HOME/.omp/agent/.hestia-litellm.lock" && test -z "$(find /tmp -maxdepth 1 -type d -name "hestia-litellm.*" -print -quit)"' || fail 'owned transient config or lock remained'
 }
@@ -213,6 +218,7 @@ case "$HESTIA_WRAPPER_PROBE_ACTION" in
 esac
 SH_PROBE
 dc exec -T workspace bash -c 'mkdir -p /tmp/hestia-native-probe; cat >/tmp/hestia-native-probe/omp; chmod 0700 /tmp/hestia-native-probe/omp' <"$root/omp-probe"
+# Invoke the native wrapper in the isolated fixture for cleanup failure cases.
 probe_wrapper() {
     local action="$1"; shift
     LITELLM_BASE_URL="$endpoint" HESTIA_LITELLM_TRACE_ID="$trace_id" HESTIA_WRAPPER_PROBE_ACTION="$action" \
@@ -265,6 +271,7 @@ ok 'all default native model filenames reject before key handoff without reading
 
 state="$(dc config --format json | python3 -c 'import json,sys; print(next(m["source"] for m in json.load(sys.stdin)["services"]["workspace"]["volumes"] if m.get("target") == "/home/dev/.omp"))')"
 agent="$state/agent"
+# Require the selected metadata conflict to reject handoff with usable state.
 blocked() {
     rm -f "$root/blocked-args.log"
     if PATH="$root/bin:$PATH" LITELLM_TEST_ARGS="$root/blocked-args.log" \

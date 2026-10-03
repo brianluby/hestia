@@ -8,6 +8,7 @@
 set +x
 set -euo pipefail
 umask 077
+# Report a bounded error without exposing endpoint, credential or trace values.
 fail() { echo "hestia-litellm-session: $*" >&2; exit 1; }
 [ "$#" -ge 1 ] || fail 'exact model argument required'
 model="$1"; shift
@@ -34,6 +35,7 @@ private=''
 config=''
 published=0
 link_inode=''
+# Preserve exit status and remove only this handoff's configuration and lock.
 cleanup() {
     status=$?
     trap - EXIT
