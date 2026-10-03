@@ -138,6 +138,7 @@ fi
 check "containers are distinct and both running" bash -c '[ "$1" != "$2" ] && [ "$(docker inspect -f "{{.State.Running}}" "$1")" = true ] && [ "$(docker inspect -f "{{.State.Running}}" "$2")" = true ]' _ "$(cat "$root/a.cid")" "$(cat "$root/b.cid")"
 
 # Both terminal workloads launch before waiting; each uses its own index.
+# Make scoped checkout edits and run real builds/tests in the selected workspace.
 build_in_workspace() {
 	local slot="$1" state
 	state="$HESTIA_STATE_ROOT/$(sed -n 's/^name: //p' "$root/$slot.yml")"
@@ -172,12 +173,18 @@ for slot in a b; do
 	if [ "$mode" = worktree ]; then
 		dc "$slot" exec -T workspace bash -c 'omp --version && omp config get disabledProviders' >"$root/$slot.native-cli.log" 2>&1 && ok "$slot native omp CLI config initializes without inference" || bad "$slot native CLI failed"
 		check "$slot native omp database is scoped to its state" test -f "$HESTIA_STATE_ROOT/$(sed -n 's/^name: //p' "$root/$slot.yml")/omp/agent/agent.db"
-		dc "$slot" exec -T workspace git rev-parse --path-format=absolute --git-common-dir >"$root/$slot.common-git"
-		check "$slot container resolves expected common Git directory" grep -qx "$root/a/repo/.git" "$root/$slot.common-git"
-		dc "$slot" exec -T workspace git diff --cached >"$root/$slot.staged.diff"
-		branch="$(dc "$slot" exec -T workspace git symbolic-ref --short HEAD)"
+		if dc "$slot" exec -T workspace git rev-parse --path-format=absolute --git-common-dir >"$root/$slot.common-git"; then
+			check "$slot container resolves expected common Git directory" grep -qx "$root/a/repo/.git" "$root/$slot.common-git"
+		else
+			bad "$slot container resolves expected common Git directory"
+		fi
+		if dc "$slot" exec -T workspace git diff --cached >"$root/$slot.staged.diff"; then
+			check "$slot staged diff includes real checkout edit" grep -q 'WorkspaceLabel' "$root/$slot.staged.diff"
+		else
+			bad "$slot staged diff includes real checkout edit"
+		fi
+		branch="$(dc "$slot" exec -T workspace git symbolic-ref --short HEAD)" || branch=""
 		check "$slot intended branch retained" test "$branch" = "proof/$slot"
-		check "$slot staged diff includes real checkout edit" grep -q 'WorkspaceLabel' "$root/$slot.staged.diff"
 	fi
 	check "$slot host sees container source edit" test -f "$root/$slot/repo/$slot-only.txt"
 	snapshot capture "$slot" >/dev/null
@@ -291,12 +298,18 @@ fi
 if [ "$mode" = worktree ]; then
 	check "linked-worktree gitdir pointer unchanged by workloads/recreation" cmp "$root/b.git-link.before" "$root/b/repo/.git"
 	for slot in a b; do
-		branch="$(dc "$slot" exec -T workspace git symbolic-ref --short HEAD)"
+		branch="$(dc "$slot" exec -T workspace git symbolic-ref --short HEAD)" || branch=""
 		check "$slot final intended branch unchanged" test "$branch" = "proof/$slot"
-		dc "$slot" exec -T workspace git rev-parse --path-format=absolute --git-common-dir >"$root/$slot.final-common-git"
-		check "$slot final common metadata still resolves" cmp "$root/$slot.common-git" "$root/$slot.final-common-git"
-		dc "$slot" exec -T workspace git diff --cached >"$root/$slot.final-staged.diff"
-		check "$slot final staged diff retained" cmp "$root/$slot.staged.diff" "$root/$slot.final-staged.diff"
+		if dc "$slot" exec -T workspace git rev-parse --path-format=absolute --git-common-dir >"$root/$slot.final-common-git"; then
+			check "$slot final common metadata still resolves" cmp "$root/$slot.common-git" "$root/$slot.final-common-git"
+		else
+			bad "$slot final common metadata still resolves"
+		fi
+		if dc "$slot" exec -T workspace git diff --cached >"$root/$slot.final-staged.diff"; then
+			check "$slot final staged diff retained" cmp "$root/$slot.staged.diff" "$root/$slot.final-staged.diff"
+		else
+			bad "$slot final staged diff retained"
+		fi
 	done
 	echo "NOT RUN: authenticated terminal-agent inference and native session resume (M9FMY5V remains partial)"
 fi
