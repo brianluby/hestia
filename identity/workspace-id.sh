@@ -63,29 +63,10 @@ fail() {
 	exit 1
 }
 
-# All git access goes through xgit: ambient GIT_DIR/GIT_WORK_TREE/... would
-# otherwise redirect resolution away from the requested checkout.
-xgit() {
-	env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY \
-		-u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_COMMON_DIR -u GIT_NAMESPACE \
-		-u GIT_CONFIG_COUNT git "$@"
-}
-
-assert_safe_path() {
-	# absolute, non-empty, no control characters; grep cannot see newline
-	# separators (line-based), so they are matched explicitly first.
-	case "$1" in
-	"") fail "empty path where $2 was expected" ;;
-	/*) : ;;
-	*) fail "relative path where absolute $2 was expected: $1" ;;
-	esac
-	case "$1" in
-	*$'\n'* | *$'\r'* | *$'\t'*) fail "line-break or tab characters in $2" ;;
-	esac
-	if printf '%s' "$1" | grep -q "$(printf '[\001-\037\177]')"; then
-		fail "control characters in $2: $1"
-	fi
-}
+# Shared git-environment sanitising and value validation (identity/lib.sh).
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=identity/lib.sh
+. "$here/identity/lib.sh"
 
 [ -d "$checkout" ] || fail "not a directory: $checkout"
 
@@ -183,12 +164,14 @@ if [ -n "$state_dir" ]; then
 		# Atomic create-if-absent: concurrent first writers converge on one
 		# record; the loser's verification of the winner's record must agree.
 		if ! ln "$tmp" "$record" 2>/dev/null; then
-			rm -f "$tmp"
 			read_record
 			if [ "$rec_canonical" != "$canonical" ] || [ "$rec_workspace" != "$workspace_id" ] || [ "$rec_group" != "$repo_group" ]; then
 				fail "state in $state_dir was concurrently created for a different checkout; refusing to reuse it for $canonical"
 			fi
 		fi
+		# The hard link is the durable record; the temp name never stays, so
+		# the state directory holds exactly identity.record.
+		rm -f "$tmp"
 	fi
 fi
 

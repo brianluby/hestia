@@ -31,6 +31,11 @@ fixtures/bin/fixture-snapshot.sh capture <repo-dir> <out-dir>
 fixtures/bin/fixture-snapshot.sh compare <repo-dir> <snapshot-dir>
 ```
 
+Set `TMPDIR` to a path under `$HOME` when the fixture will be mounted into a
+container: macOS runtimes share only the paths their VM mounts, and an unshared
+path (the default `$TMPDIR` lives under `/var/folders`) mounts empty instead of
+failing. The helper warns when its root is outside `$HOME`.
+
 Cleanup is always exactly `rm -rf <instance-root>`: every resource the fixture
 creates — repositories, worktrees, branches, snapshots — lives under that root,
 so cleanup can only touch what this fixture made.

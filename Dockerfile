@@ -1,4 +1,5 @@
 # syntax=docker/dockerfile:1
+# check=skip=FromPlatformFlagConstDisallowed
 # Canonical Hestia image/build path: one Dockerfile, named stages.
 #   docker build --target base .            minimal OS utilities + mise (61Q7E8F)
 #   docker build --target fixture-tools .   base + fixture mise toolchain (WGHQ2GW)
@@ -18,13 +19,15 @@
 #         Actions OIDC issuer. cosign itself is pinned by its release-API
 #         digest — the documented root anchor of this chain.
 #
-# Targets linux/arm64 (the available Apple Silicon host) and enforces the
-# platform on the base pull, so a non-ARM builder fails clearly instead of
-# resolving the multi-arch index to a foreign rootfs around the arm64 mise
-# tarball; no multi-arch support is claimed. By construction the images
-# contain no GUI, no agent supervisor, no host sockets and no credentials.
-# Startup installs nothing; toolchains are declared image layers built
-# explicitly.
+# The base pull is pinned to linux/arm64 (the available Apple Silicon host)
+# and enforces it, so a non-ARM builder fails clearly instead of resolving the
+# multi-arch index to a foreign rootfs around the arm64-only mise and cosign
+# downloads below; no multi-arch support is claimed. That constant is why this
+# file skips buildx's FromPlatformFlagConstDisallowed check (line above):
+# taking the base platform from a build argument is exactly what would let the
+# base and those downloads disagree again. By construction the images contain
+# no GUI, no agent supervisor, no host sockets and no credentials. Startup
+# installs nothing; toolchains are declared image layers built explicitly.
 FROM --platform=linux/arm64 debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS base
 
 ARG MISE_VERSION=v2026.9.4
@@ -169,7 +172,6 @@ RUN mise install --yes \
  && test -x "$omp_bin" \
  && omp --version | grep -qF "${OMP_VERSION#v}" \
  && echo "${OMP_SHA256}  $omp_bin" | sha256sum --strict --check -
-RUN omp --version && echo "agent layer ok"
 
 # AWCEX5Z — user-selected LiteLLM alternative, opt-in at attach only.
 # Derive from the same provider list; the default Bedrock overlay is unchanged.

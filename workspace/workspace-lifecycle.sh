@@ -136,8 +136,8 @@ is_running() {
 }
 
 wait_running() {
-	local i
-	for i in 1 2 3 4 5 6 7 8 9 10; do
+	local _
+	for _ in 1 2 3 4 5 6 7 8 9 10; do
 		if is_running; then return 0; fi
 		sleep 1
 	done
@@ -185,7 +185,11 @@ stop)
 		dc stop workspace
 	fi
 	stopped_id="$(existing_cid)"
-	echo "workspace stopped; container, volumes and state retained: $stopped_id"
+	if [ -n "$stopped_id" ]; then
+		echo "workspace stopped; container, volumes and state retained: $stopped_id"
+	else
+		echo "no workspace container to stop"
+	fi
 	;;
 remove-runtime)
 	verify_state_identity

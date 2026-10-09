@@ -17,6 +17,10 @@ workspace/workspace-lifecycle.sh start <file>           # persistent workspace
 The generated service runs `sleep infinity` when started, so it stays
 attachable; `compose run` overrides that for one-off commands.
 
+`<checkout-path>` may be any directory inside a Git checkout: the identity
+helper resolves the checkout root, and that root — not the argument — is what
+gets bound, so a subdirectory generates the same file as the root.
+
 ## Fixture walkthrough
 
 Run from the Hestia repository root in Bash on the exercised Apple Silicon
@@ -298,5 +302,6 @@ state/settings/overlay checks, including later review fixes. The
 [native LiteLLM fixture proof](../docs/m1-apple-silicon-evidence-v2.md) verifies
 real assisted edits and saved-session resume after recreation. Bedrock
 authentication remains unverified. Fixtures must live
-on Docker-shared paths on macOS (home, not the unshared `/tmp` path observed
-in the recorded runtime). No broader platform support is established.
+on Docker-shared paths on macOS (home — not the unshared `/tmp` or default
+`$TMPDIR` under `/var/folders` path observed in the recorded runtime). No
+broader platform support is established.
