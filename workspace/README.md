@@ -130,7 +130,7 @@ unreadable metadata fail with a clear error before anything is written; a
 failed generation leaves no partial Compose file and never mutates the
 checkout.
 
-## Agent layer (omp)
+## Agent layers
 
 The optional `agent` image target (`docker build --target agent .`) adds omp
 (oh-my-pi) on top of `fixture-tools`, installed through mise and verified

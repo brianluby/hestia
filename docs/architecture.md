@@ -64,7 +64,7 @@ Run one workspace variant per checkout by default. A future IDE variant adds an 
 
 **Consequences:** builds need downloads; warm startup is predictable. Shared declarations do not prove byte-for-byte reproducibility. No universal toolchain image or mandatory service stack is required.
 
-Current implementation: Debian bookworm-slim, pinned mise and a non-root `dev` user; the `fixture-tools` target installs only the synthetic fixture's Go declaration. Mounting another repository does not build its toolchain. The optional `agent` target adds pinned omp; only linux/arm64 has been exercised. See [evidence](evidence.md) for versions and verification boundaries.
+Current implementation: Debian bookworm-slim, pinned mise and a non-root `dev` user; the `fixture-tools` target installs only the synthetic fixture's Go declaration. Mounting another repository does not build its toolchain. The optional `agent` target adds pinned omp and the `pig` target adds pinned PiG; only linux/arm64 has been exercised. See [evidence](evidence.md) for versions and verification boundaries.
 
 ## ADR-004: Native authentication and scoped agent state
 
