@@ -516,3 +516,43 @@ acceptance for it, and nothing about M1-07 moves.
   that it does not sandbox model output, tools or shell commands — the
   container is the boundary. Selecting a policy mechanism for PiG remains an
   open choice.
+
+## PR #29 review remediation — 2026-10-09
+
+Host: macOS 27.0.1 arm64, Colima, Docker 29.5.2 server. Five findings came back
+from the PR's reviewers (Codex, CodeRabbit, Copilot).
+
+- **Agent-state exposure (Codex, P1).** `--state` selects the bound agent
+  directory, but the workspace state directory is still bound at its identical
+  path, so a workspace reaches every agent tree under it — a PiG container can
+  read a sibling `omp` tree. Not changed structurally: that bind is load-bearing
+  (`tests/workspace-cache-clear.test.sh` writes `<state>/marker.txt` through the
+  container, runbook step 5 reads `$STATE/tester-marker.txt` inside one), and
+  separating identity/general state from agent-private state moves paths across
+  the lifecycle helper, the runbook and three suites. Documented in the
+  generator header and the workspace reference, with ADR-003's one-variant-per-
+  checkout model named as the bound; the structural split is decision ticket
+  W9JPBGQ.
+- **Temporary record leak (CodeRabbit).** Real, and the earlier fix was
+  incomplete: cleanup ran only after a successful link, so the race-loser path
+  reached `fail` first and left `identity.record.XXXXXX` behind. An `EXIT` trap
+  now covers every path; the new regression test fails on the previous code
+  (`identity.record.TWXDcD` left behind) and passes now.
+- **Unvalidated names (CodeRabbit).** Real: `--state`/`--env` names were checked
+  only by the line-based charset `grep`, so a name containing a newline reached
+  directory creation, bind paths and YAML keys. Both now pass the shared value
+  check first.
+- **Colliding targets (CodeRabbit).** Real: a `--state` target could repeat the
+  checkout, the Git metadata, the state directory or another state target
+  (`config` accepts it, `up` fails). Validated before any state directory is
+  created, comparing physical paths so a symlinked spelling (macOS `/var` →
+  `/private/var`) cannot slip through.
+- **Installed skill typo (Copilot).** Fixed in `.claude/skills/epiq/SKILL.md`,
+  which means a future `epiq_skill_install` reports the file as differing rather
+  than identical — accepted deliberately.
+
+Suites after the fixes, all exit 0, no skips: identity 22/22, fixture-snapshot
+7/7, mounts 49/49, lifecycle 32/32, cache-clear 12/12, agent 24/24, litellm
+28/28, aws 9/9, concurrency 21/21 — 204 checks. The litellm, aws and concurrency
+suites are the base's own; they matter here because the new target validation
+runs on every generation, including theirs.

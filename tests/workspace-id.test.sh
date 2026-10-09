@@ -154,6 +154,23 @@ else
 		bad "unclear collision error: $(cat "$root/err2.txt")"
 fi
 
+echo "== temporary record cleanup =="
+# A record path that cannot be linked onto (a self-referential symlink) drives
+# the create-then-verify path to failure inside the helper. The temporary name
+# must not survive that, or the state directory accumulates record copies.
+st3="$root/state3"
+mkdir -p "$st3"
+ln -s identity.record "$st3/identity.record"
+if "$wid" --state-dir "$st3" "$root/x/collide-moved" >"$root/err3.txt" 2>&1; then
+	bad "unlinkable record rejected"
+else
+	ok "unlinkable record rejected"
+fi
+case "$(ls -A "$st3")" in
+*identity.record.*) bad "temporary record left behind: $(ls -A "$st3" | tr '\n' ' ')" ;;
+*) ok "failed verification left no temporary record" ;;
+esac
+
 echo
 echo "passed: $pass, failed: $fail"
 [ "$fail" -eq 0 ]

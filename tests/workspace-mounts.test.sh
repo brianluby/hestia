@@ -141,6 +141,39 @@ if "$gen" --env GOCACHE=/tmp/x --out "$root/badenv.yaml" "$repo" >/dev/null 2>&1
 else
 	ok "--env override of a generated variable rejected"
 fi
+# Names reach generated directory and bind paths, and YAML keys; a newline
+# slips past the line-based charset check unless the value check runs first.
+if "$gen" --state "$(printf 'bad\nname')" --out "$root/nlstate.yaml" "$repo" >/dev/null 2>&1; then
+	bad "--state name with a line break rejected"
+else
+	ok "--state name with a line break rejected"
+fi
+if "$gen" --env "$(printf 'BAD\nNAME')=1" --out "$root/nlenv.yaml" "$repo" >/dev/null 2>&1; then
+	bad "--env name with a line break rejected"
+else
+	ok "--env name with a line break rejected"
+fi
+[ ! -e "$root/nlstate.yaml" ] && [ ! -e "$root/nlenv.yaml" ] &&
+	ok "rejected names wrote no file" || bad "a rejected name wrote a file"
+# Compose wants one mount per container target: a state target that repeats the
+# checkout, the Git metadata, the state directory or another state target must
+# be refused before the state directories are created.
+if "$gen" --state "pig:$repo" --out "$root/collide.yaml" "$repo" >/dev/null 2>"$root/collide.err"; then
+	bad "--state target colliding with the checkout rejected"
+else
+	grep -q "already a mount target" "$root/collide.err" &&
+		ok "--state target colliding with the checkout rejected" ||
+		bad "unclear collision error: $(cat "$root/collide.err")"
+fi
+[ ! -e "$HESTIA_STATE_ROOT/$ws_id/pig" ] &&
+	ok "colliding target created no state directory" || bad "colliding target created a state directory"
+if "$gen" --state a:/home/dev/.one --state b:/home/dev/.one --out "$root/dup.yaml" "$repo" >/dev/null 2>&1; then
+	bad "two --state specs sharing a target rejected"
+else
+	ok "two --state specs sharing a target rejected"
+fi
+[ ! -e "$root/collide.yaml" ] && [ ! -e "$root/dup.yaml" ] &&
+	ok "rejected targets wrote no file" || bad "a rejected target wrote a file"
 
 echo "== host/container agreement (through the generated compose file) =="
 status_host="$(git -C "$repo" status --porcelain=v2)"
