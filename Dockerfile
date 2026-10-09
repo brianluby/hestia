@@ -3,6 +3,7 @@
 # Canonical Hestia image/build path: one Dockerfile, named stages.
 #   docker build --target base .            minimal OS utilities + mise (61Q7E8F)
 #   docker build --target fixture-tools .   base + fixture mise toolchain (WGHQ2GW)
+#   docker build --target pig .             fixture-tools + the PiG harness (V5VWGS9)
 #   docker build --target agent .           fixture-tools + the omp agent (XJVWF4K)
 # `docker build .` builds the last stage (agent).
 #
@@ -132,6 +133,49 @@ RUN mise install --yes \
     mise exec -- go test ./... \
  && cd / \
  && rm -rf /tmp/fixture-src /tmp/hestia-build-cache
+
+# V5VWGS9 — alternative harness layer: PiG ("Pi in Go", github.com/MichaelKinsy/PiG), a
+# Go port of the Pi terminal coding agent — one native binary, no Node.js. A
+# separate stage rather than a switch, so a workspace chooses its harness by
+# image tag (`--image hestia-pig:<tag>`) and the agent layer stays the default
+# build. Kept before the agent stage so `docker build .` still builds the last
+# stage, the agent image, as the header documents.
+#
+# Installed from the pinned release archive rather than through mise: the
+# github backend's asset matching for this naming (pig-<version>-linux-arm64)
+# is not something this repository has verified, while a pinned sha256 is the
+# anchor style already used for mise itself. 2026-10-05, v0.4.1: no cosign or
+# SLSA bundle is published (only upstream's SHA256SUMS and an update signature),
+# so the trust anchor is the GitHub release API over TLS that published this
+# digest — the same honest limitation recorded for the base stage. The pinned
+# value was cross-checked against upstream's own SHA256SUMS file.
+#
+# No provider policy ships here, unlike the omp layer: PiG authenticates
+# through interactive /login or provider API keys in its environment, and it
+# documents no config-overlay mechanism to anchor a policy outside the
+# user-writable tree. That remains an open choice for whoever needs it; the
+# restriction decision (TG7VZBV, bedrock-only) belongs to the omp integration.
+# PiG runs with the permissions of the user who starts it and does not sandbox
+# model output, tools or shell commands (its own SECURITY.md says so), which is
+# exactly what this container boundary is for. Durable state is PiG's config
+# root ~/.pig (or PIG_HOME, agent directory PIG_CODING_AGENT_DIR), which the
+# generated Compose file binds with `--state pig` — never baked.
+FROM fixture-tools AS pig
+
+ARG PIG_VERSION=v0.4.1
+ARG PIG_SHA256=e1768bbfce29b784d76001eb47ebd989f05ed042fbe81ad8629816e181fa5ac8
+
+USER root
+RUN curl -sfL -o /tmp/pig.tar.gz \
+      "https://github.com/MichaelKinsy/PiG/releases/download/${PIG_VERSION}/pig-${PIG_VERSION#v}-linux-arm64.tar.gz" \
+ && echo "${PIG_SHA256}  /tmp/pig.tar.gz" | sha256sum --strict --check - \
+ && tar -xzf /tmp/pig.tar.gz -C /tmp \
+ && install -m 0755 "/tmp/pig-${PIG_VERSION#v}-linux-arm64/pig" /usr/local/bin/pig \
+ && rm -rf /tmp/pig.tar.gz "/tmp/pig-${PIG_VERSION#v}-linux-arm64" \
+ && pig --version | grep -qF "${PIG_VERSION#v}+"
+# Back to the runtime user: the image's default user must stay dev, and a
+# root-owned /usr/local/bin binary is executable by it but not replaceable.
+USER dev
 
 # XJVWF4K — optional agent layer: omp (oh-my-pi, TG7VZBV decision; AWS Bedrock
 # by default, with a user-opted-in LiteLLM overlay below). Installed through

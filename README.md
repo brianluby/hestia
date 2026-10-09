@@ -2,7 +2,7 @@
 
 Hestia is a terminal-first development container project targeting Apple Silicon macOS and Windows through WSL2. The goal is reproducible toolchains and disposable containers without disposable work.
 
-**Status: fixture foundation implemented; Milestone 1 acceptance incomplete.** The synthetic Go fixture, checkout identity, canonical linux/arm64 image, scoped Compose generator, durable state, lifecycle/cache helpers and optional omp layer have macOS arm64 evidence in the [evidence log](docs/evidence.md). omp settings persistence and the provider-policy overlay are exercised. The [native LiteLLM fixture proof](docs/m1-apple-silicon-evidence-v2.md) verifies real assisted edits, recreation and saved-session resume. Bedrock authentication, Argus and Windows/WSL2 acceptance are pending. There is no custom Hestia CLI.
+**Status: fixture foundation implemented; Milestone 1 acceptance incomplete.** The synthetic Go fixture, checkout identity, canonical linux/arm64 image, scoped Compose generator, durable state, lifecycle/cache helpers and the optional agent layers (omp, PiG) have macOS arm64 evidence in the [evidence log](docs/evidence.md). omp settings persistence and the provider-policy overlay are exercised. The [native LiteLLM fixture proof](docs/m1-apple-silicon-evidence-v2.md) verifies real assisted edits, recreation and saved-session resume; Bedrock authentication, PiG's authentication and sessions, Argus and Windows/WSL2 acceptance are pending. There is no custom Hestia CLI.
 
 ## Intended workflow
 

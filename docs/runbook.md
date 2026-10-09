@@ -367,6 +367,31 @@ result from the unauthenticated smoke test.
    Record pass/fail/not run independently; successful initial login does not prove
    refresh. Keep Git authentication separate if later testing requires it.
 
+## 9b. Alternative harness: PiG (optional, unverified)
+
+PiG is a second optional layer for the same fixture journey; nothing here implies
+omp acceptance, and the `agent` target above is unchanged. PiG keeps its state
+under `~/.pig`, so the workspace is generated with `--state pig`, which replaces
+the omp state bind rather than adding to it:
+
+```sh
+PIG_IMAGE="hestia-pig:tester"
+docker build --platform linux/arm64 --target pig -t "$PIG_IMAGE" "$HESTIA"
+"$HESTIA/workspace/workspace-lifecycle.sh" stop "$COMPOSE"
+"$HESTIA/workspace/workspace-lifecycle.sh" remove-runtime "$COMPOSE"
+"$HESTIA/workspace/workspace-compose.sh" --image "$PIG_IMAGE" --state pig --out "$COMPOSE" "$REPO"
+"$HESTIA/workspace/workspace-lifecycle.sh" start "$COMPOSE"
+"$HESTIA/workspace/workspace-lifecycle.sh" attach "$COMPOSE"
+```
+
+Inside, `pig --version` must report the pinned release (`0.4.1+…`), `pig` with no
+arguments starts the terminal agent, and authentication goes through its own
+`/login` or a provider key in the environment — PiG ships no provider policy,
+so the container is the only boundary, and it says so itself. Record
+authentication, an assisted change and session persistence exactly like step 9,
+and record "not run" for anything not exercised: the image build proves no
+authentication and no session behavior.
+
 ## 10. Record results and stop safely
 
 Record a row for each requirement below, using **pass**, **fail**, **partial** or

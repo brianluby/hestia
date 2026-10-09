@@ -400,6 +400,7 @@ legacy-builder deprecation warning. The first harness invocation supplied
 the script over stdin, which Compose exec consumed; the complete successful
 run used `bash -c` instead. Synthetic directories, containers, networks and
 cache volumes from both attempts were removed; the built image tag remains.
+
 ## Review fixes re-verified — 2026-10-08
 
 Host: macOS 27.0 arm64, Colima `default` profile (macOS Virtualization.Framework,
@@ -470,3 +471,48 @@ unchanged. The probe tags were removed; the `2026-09-09`/`2026-09-10` tags
 still point at the legacy-builder images recorded above, and the next real
 build will replace them under BuildKit.
 
+## PiG harness layer — 2026-10-08
+
+Host: macOS 27.0 arm64, Colima `default` (Docker client 29.8.2, server 29.5.2
+linux/aarch64, BuildKit v0.30.0). PiG ("Pi in Go",
+[github.com/MichaelKinsy/PiG](https://github.com/MichaelKinsy/PiG), MIT) is a
+second optional harness on the same fixture journey. Nothing here claims
+acceptance for it, and nothing about M1-07 moves.
+
+- **Pin and verification.** Release `v0.4.1` (published 2026-10-05), asset
+  `pig-0.4.1-linux-arm64.tar.gz`, 28,950,232 bytes, sha256
+  `e1768bbfce29b784d76001eb47ebd989f05ed042fbe81ad8629816e181fa5ac8`. The
+  digest was taken from the GitHub release API and cross-checked twice:
+  downloading the tarball reproduced it, and upstream's own `SHA256SUMS` asset
+  lists the same value. No cosign or SLSA attestation is published for these
+  assets (only an update signature), so the trust anchor is the GitHub release
+  API over TLS — recorded here rather than implied.
+- **Build.** `docker build --platform linux/arm64 --target pig` →
+  `hestia-pig:2026-10-08`, `sha256:87e86741816b…`, 205,598,331 bytes,
+  linux/arm64, default user `dev`. `docker buildx build --check --target pig .`
+  reports no warnings. The stage is a sibling of the agent stage placed before
+  it, so `docker build .` still builds the agent image.
+- **Offline binary.** `docker run --rm --network none` as uid 1000 printed
+  `pig --version` = `0.4.1+1.0.3` and
+  `pig version`: pig 0.4.1, upstream pi 1.0.3, go1.27.1, linux/arm64, build
+  `3ee745c8cda3c1a9a8d71112c140790c4d64d78d` — the release's target commit.
+  `/usr/local/bin/pig` is root-owned, mode 0755, 60,096,672 bytes; the layer
+  needs no Node.js.
+- **Workspace.** A Compose file generated for a fixture checkout with
+  `--image hestia-pig:2026-10-08 --state pig` binds the checkout, the state
+  directory and `<state>/pig` → `/home/dev/.pig` (three binds plus the cache
+  volume). `validate` and `start` passed; inside the running container as dev,
+  the working directory was the checkout and `pig --version` printed
+  `0.4.1+1.0.3`; a marker written to `~/.pig` appeared on the host at
+  `<state>/pig/probe.txt` owned by `dev`; the fixture snapshot still compared
+  clean, so source and Git state were untouched. `stop` and `remove-runtime`
+  retained state and volumes, and the container, network and cache volume were
+  removed afterwards (smoke artifacts kept under
+  `$HOME/.cache/hestia-pig-smoke` for inspection).
+- **Not run:** PiG authentication (`/login` or provider keys in the
+  environment), an agent-assisted change, and session persistence or resume.
+  This layer ships no provider policy, unlike the omp layer: PiG documents no
+  config overlay to anchor one outside the user-writable tree, and it states
+  that it does not sandbox model output, tools or shell commands — the
+  container is the boundary. Selecting a policy mechanism for PiG remains an
+  open choice.
