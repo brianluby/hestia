@@ -172,7 +172,23 @@ if "$gen" --state a:/home/dev/.one --state b:/home/dev/.one --out "$root/dup.yam
 else
 	ok "two --state specs sharing a target rejected"
 fi
-[ ! -e "$root/collide.yaml" ] && [ ! -e "$root/dup.yaml" ] &&
+# The cache volume destination is generated too, so it counts as reserved.
+if "$gen" --state "cache:/hestia/cache" --out "$root/cacheclash.yaml" "$repo" >/dev/null 2>&1; then
+	bad "--state target colliding with the cache volume rejected"
+else
+	ok "--state target colliding with the cache volume rejected"
+fi
+# Targets are container paths: a spelling that resolves to the same directory on
+# the host (/var vs /private/var, or any host symlink) is still a distinct
+# destination inside the container and must not be refused.
+mkdir -p "$root/alias-src"
+ln -s "$repo" "$root/repo-alias"
+if "$gen" --state "alias:$root/repo-alias" --out "$root/alias.yaml" "$repo" >/dev/null 2>"$root/alias.err"; then
+	ok "a target distinct inside the container is accepted"
+else
+	bad "target wrongly refused: $(cat "$root/alias.err")"
+fi
+[ ! -e "$root/collide.yaml" ] && [ ! -e "$root/dup.yaml" ] && [ ! -e "$root/cacheclash.yaml" ] &&
 	ok "rejected targets wrote no file" || bad "a rejected target wrote a file"
 
 echo "== host/container agreement (through the generated compose file) =="

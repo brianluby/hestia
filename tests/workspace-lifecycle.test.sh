@@ -190,6 +190,12 @@ fi
 	ok "durable state survives remove-runtime" || bad "state lost on remove-runtime"
 docker volume inspect "${ws_id}_linux-caches" >/dev/null 2>&1 &&
 	ok "cache volume survives remove-runtime" || bad "cache volume removed by remove-runtime"
+if "$life" stop "$root/ws.yaml" >"$root/stop-empty.log" 2>&1 &&
+	grep -q "no workspace container to stop" "$root/stop-empty.log"; then
+	ok "stop with no container says so instead of reporting a stopped workspace"
+else
+	bad "stop with no container: $(tail -1 "$root/stop-empty.log")"
+fi
 "$life" start "$root/ws.yaml" >/dev/null 2>&1
 
 echo "== build/test after recreation =="

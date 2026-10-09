@@ -232,26 +232,20 @@ state_target() {
 	esac
 }
 
-# Compose needs one mount per container target: a state target that repeats a
-# generated target (the checkout, the Git metadata, the state directory) or
-# another state target would hide it or fail at up rather than here. Validate
-# every target before creating any directory. A target can name a generated
-# mount through a symlinked spelling (macOS /var → /private/var) and still land
-# on it inside the container, so physical paths are compared where the target
-# exists on this host.
-state_dir_phys="$(cd "$state_dir" 2>/dev/null && pwd -P)" || state_dir_phys="$state_dir"
+# Compose wants one mount per container target, and a target names a path inside
+# the container: the emitted target strings are compared, not host paths, because
+# a spelling that resolves to one directory on the host (/var vs /private/var on
+# macOS) is still a distinct destination in the container. A state target that
+# repeats a generated target would hide it, so every target is validated before
+# any directory is created.
 state_targets=()
 for spec in "${state_specs[@]}"; do
 	target="$(state_target "$spec")"
-	probe="$target"
-	if [ -d "$target" ]; then
-		probe="$(cd "$target" && pwd -P)"
-	fi
-	for b in "${git_paths[@]}" "$state_dir" "$state_dir_phys" ${state_targets[@]+"${state_targets[@]}"}; do
-		[ "$probe" != "$b" ] ||
+	for b in "${git_paths[@]}" "$state_dir" /hestia/cache ${state_targets[@]+"${state_targets[@]}"}; do
+		[ "$target" != "$b" ] ||
 			fail "--state target '$target' is already a mount target of this workspace; give each state its own container path"
 	done
-	state_targets+=("$probe")
+	state_targets+=("$target")
 done
 
 for spec in "${state_specs[@]}"; do
