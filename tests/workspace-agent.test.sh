@@ -88,7 +88,7 @@ trap cleanup EXIT
 echo "== generation =="
 "$gen" --image "$image" --out "$root/ws.yaml" "$repo" 2>/dev/null
 ws_id="$(sed -n 's/^name: //p' "$root/ws.yaml")"
-grep -q "target: /home/dev/.omp$" "$root/ws.yaml" &&
+grep -Eq "target: '?/home/dev/\.omp'?$" "$root/ws.yaml" &&
 	ok "omp state bind targets ~/.omp" || bad "no ~/.omp bind"
 grep -q "source: '$HESTIA_STATE_ROOT/$ws_id/omp'" "$root/ws.yaml" &&
 	ok "omp state bind sources from the workspace state dir" || bad "omp bind source wrong"

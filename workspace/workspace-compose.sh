@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # JP73P2D — generate a scoped Compose workspace definition for one checkout.
 #
-# usage: workspace-compose.sh [--image IMG] [--out FILE] <checkout-path>
+# usage: workspace-compose.sh [--image IMG] [--out FILE] [--state SPEC]...
+#                            [--env NAME=VALUE]... <checkout-path>
 #
 # Emits a Compose file (stdout, or --out) whose single `workspace` service
 # binds exactly:
@@ -11,7 +12,17 @@
 #     its identical path too — required metadata only; the main checkout's
 #     source is never mounted alongside, and
 #   - the workspace's durable state directory (HESTIA_STATE_ROOT/<id>,
-#     default ~/.local/share/hestia/<id>), at its identical path.
+#     default ~/.local/share/hestia/<id>), at its identical path, and
+#   - one durable agent-state directory per --state SPEC, named after the
+#     agent: a subdirectory of the state directory, bound at its own
+#     container path (default /home/dev/.<name>). Without --state the single
+#     default is omp's `omp` → /home/dev/.omp.
+# --env NAME=VALUE adds one service environment variable for an agent that
+# loads, say, a policy overlay by variable; names the generator owns are
+# refused rather than silently emitted twice, and a name given twice is
+# refused rather than written as a duplicate YAML key. Values are written
+# verbatim into the generated file and the container environment, so never
+# pass a credential value (ADR-004) — supply credentials at runtime instead.
 # Linux build/dependency caches (GOCACHE, GOMODCACHE) go to a workspace-scoped
 # disposable Compose volume at /hestia/cache, separate from source, durable
 # state and the image-installed toolchain (nothing is mounted over mise's
@@ -34,7 +45,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 wid="$here/identity/workspace-id.sh"
 
 usage() {
-	echo "usage: workspace-compose.sh [--image IMG] [--out FILE] <checkout-path>" >&2
+	echo "usage: workspace-compose.sh [--image IMG] [--out FILE] [--state NAME[:CONTAINER_PATH]]... [--env NAME=VALUE]... <checkout-path>" >&2
 	exit 2
 }
 
@@ -66,6 +77,42 @@ while [ "$#" -gt 0 ]; do
 		out="$2"
 		shift 2
 		;;
+	--state)
+		# NAME or NAME:CONTAINER_PATH. NAME is a plain subdirectory name, so
+		# by construction the state stays inside the workspace state
+		# directory and cannot be pointed at the checkout or the image.
+		[ "$#" -ge 2 ] || usage
+		spec="$2"
+		name="${spec%%:*}"
+		printf '%s' "$name" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9_-]*$' ||
+			fail "--state expects NAME or NAME:CONTAINER_PATH, with NAME limited to letters, digits, _ and - : $spec"
+		case "$spec" in
+		*:*) assert_safe_path "${spec#*:}" "container path in --state $name" ;;
+		esac
+		state_specs+=("$spec")
+		shift 2
+		;;
+	--env)
+		[ "$#" -ge 2 ] || usage
+		name="${2%%=*}"
+		[ "$name" != "$2" ] || fail "--env expects NAME=VALUE (got: $2)"
+		printf '%s' "$name" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*$' ||
+			fail "invalid environment variable name: $name"
+		case "$name" in
+		PATH | HOME | GIT_CONFIG_* | GOCACHE | GOMODCACHE | PI_CONFIG_FILES)
+			fail "--env cannot override the generated $name — edit the generator if that value is wrong for this agent"
+			;;
+		esac
+		# Repeating a name would emit the YAML key twice, which Compose only
+		# rejects later ("mapping key already defined").
+		for seen in ${env_extra[@]+"${env_extra[@]}"}; do
+			[ "${seen%%=*}" = "$name" ] || continue
+			fail "--env $name was given twice — one value per variable"
+		done
+		reject_unsafe_value "${2#*=}" "environment value for $name"
+		env_extra+=("$2")
+		shift 2
+		;;
 	-*) usage ;;
 	*) break ;;
 	esac
@@ -73,10 +120,18 @@ done
 [ "$#" -eq 1 ] || usage
 checkout="$1"
 
+# Default agent state is omp's ~/.omp (XJVWF4K). Any --state above replaces it,
+# so a workspace generated for another harness does not inherit an omp bind.
+if [ "${#state_specs[@]}" -eq 0 ]; then
+	state_specs=("omp:/home/dev/.omp")
+fi
+
 [ -d "$checkout" ] || fail "not a directory: $checkout"
 
 # Layout pre-checks before anything else, so unsupported layouts fail with a
-# precise error rather than a generic identity failure.
+# precise error rather than a generic identity failure. A path that is merely
+# inside a checkout is not rejected here: the identity helper below resolves
+# the checkout root, and it reports a non-checkout with the same clear error.
 if [ -f "$checkout/.git" ]; then
 	raw_link="$(sed -n 's/^gitdir: *//p' "$checkout/.git")"
 	[ -n "$raw_link" ] || fail "unsupported layout: $checkout/.git carries no gitdir pointer"
@@ -146,20 +201,33 @@ fi
 "$wid" --state-dir "$state_dir" "$checkout" >/dev/null 2>&1 ||
 	fail "state identity check failed for $state_dir — it may be recorded for a different checkout; inspect $state_dir/identity.record, then reattach or rehome the state explicitly"
 
-# Agent state (XJVWF4K): omp keeps sessions, memory and its settings under
-# ~/.omp. The workspace state directory provides the persistent half; the
-# whole tree is writable so omp can persist settings (model selection, theme)
-# with its atomic tmp+rename write (FA5H9TR). The provider-restriction policy
-# ships in the image at /opt/hestia/omp/config.yml — a root-owned directory,
-# so the runtime user can neither edit nor replace it — and is loaded as a
-# config overlay via PI_CONFIG_FILES: omp merges overlays after the user's
-# own config (overlay wins) and refuses to start when a configured overlay is
-# missing, so the policy cannot be overridden by editing the writable config.
-# The policy is loaded by env var rather than a bind because mounting the
-# state dir at ~/.omp would hide any image copy under that tree, and binding
-# a read-only file into it made omp's atomic settings writes fail (EBUSY).
-agent_state="$state_dir/omp"
-mkdir -p "$agent_state"
+# Agent state (XJVWF4K): each --state NAME[:CONTAINER_PATH] gets a directory
+# under the workspace state tree, created here dev-owned, and bound at its
+# container path. That is what makes sessions, settings and login survive
+# recreations for any harness, not just omp.
+#
+# omp's specific rationale, still the default: omp keeps sessions, memory and
+# its settings under ~/.omp. The whole tree is writable so omp can persist
+# settings (model selection, theme) with its atomic tmp+rename write
+# (FA5H9TR). Its provider-restriction policy ships in the image at
+# /opt/hestia/omp/config.yml — a root-owned directory, so the runtime user can
+# neither edit nor replace it — and is loaded as a config overlay via
+# PI_CONFIG_FILES: omp merges overlays after the user's own config (overlay
+# wins) and refuses to start when a configured overlay is missing, so the
+# policy cannot be overridden by editing the writable config. The policy is
+# loaded by env var rather than a bind because mounting the state dir at
+# ~/.omp would hide any image copy under that tree, and binding a read-only
+# file into it made omp's atomic settings writes fail (EBUSY).
+state_target() {
+	case "$1" in
+	*:*) printf '%s' "${1#*:}" ;;
+	*) printf '/home/dev/.%s' "${1%%:*}" ;;
+	esac
+}
+
+for spec in "${state_specs[@]}"; do
+	mkdir -p "$state_dir/${spec%%:*}"
+done
 
 # YAML single-quote escaping plus literal-dollar doubling: Compose applies
 # $VAR interpolation to values even inside single quotes, so a path like
@@ -182,15 +250,17 @@ emit() {
 	# overrides this with the requested command.
 	echo "    command: [\"sleep\", \"infinity\"]"
 	echo "    volumes:"
-	local b
+	local b s
 	for b in "${git_paths[@]}" "$state_dir"; do
 		echo "      - type: bind"
 		echo "        source: '$(sq "$b")'"
 		echo "        target: '$(sq "$b")'"
 	done
-	echo "      - type: bind"
-	echo "        source: '$(sq "$agent_state")'"
-	echo "        target: /home/dev/.omp"
+	for s in "${state_specs[@]}"; do
+		echo "      - type: bind"
+		echo "        source: '$(sq "$state_dir/${s%%:*}")'"
+		echo "        target: '$(sq "$(state_target "$s")")'"
+	done
 	echo "      - linux-caches:/hestia/cache"
 	# Host and container UIDs differ; git only operates on repositories it
 	# considers safely owned. Scope the exception to exactly the mounted
@@ -212,6 +282,12 @@ emit() {
 	# merged after the user's own config so it cannot be overridden, and
 	# fail-closed (omp errors out when a configured overlay is missing).
 	echo "      PI_CONFIG_FILES: /opt/hestia/omp/config.yml"
+	# --env entries, last so a reader sees agent-specific values together.
+	# ${arr[@]+...} keeps an empty list valid under set -u on bash 3.2.
+	local e
+	for e in ${env_extra[@]+"${env_extra[@]}"}; do
+		echo "      ${e%%=*}: '$(sq "${e#*=}")'"
+	done
 	echo "volumes:"
 	echo "  linux-caches:"
 }
