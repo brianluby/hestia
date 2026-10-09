@@ -546,15 +546,23 @@ from the PR's reviewers (Codex, CodeRabbit, Copilot).
   check first.
 - **Colliding targets (CodeRabbit).** Real: a `--state` target could repeat the
   checkout, the Git metadata, the state directory or another state target
-  (`config` accepts it, `up` fails). Validated before any state directory is
-  created, comparing physical paths so a symlinked spelling (macOS `/var` →
-  `/private/var`) cannot slip through.
+  (`config` accepts it, `up` fails). Targets are validated before any state
+  directory is created, comparing the emitted container paths — the first
+  attempt resolved host paths instead, which was wrong: a `target` names a path
+  inside the container, so a host symlink spelling (`/var` → `/private/var` on
+  macOS) is a distinct destination there and must not be refused. A second
+  review round caught that, and that the cache volume's `/hestia/cache` was
+  missing from the reserved set.
+- **Test gap (Momus).** The `stop` branch reporting that no workspace container
+  exists was only checked by hand; the lifecycle suite now asserts both its
+  message and its exit status.
 - **Installed skill typo (Copilot).** Fixed in `.claude/skills/epiq/SKILL.md`,
   which means a future `epiq_skill_install` reports the file as differing rather
   than identical — accepted deliberately.
 
-Suites after the fixes, all exit 0, no skips: identity 22/22, fixture-snapshot
-7/7, mounts 49/49, lifecycle 32/32, cache-clear 12/12, agent 24/24, litellm
-28/28, aws 9/9, concurrency 21/21 — 204 checks. The litellm, aws and concurrency
-suites are the base's own; they matter here because the new target validation
-runs on every generation, including theirs.
+Suites after the fixes, all exit 0, no skips, on the rebased tree: identity
+22/22, fixture-snapshot 7/7, mounts 51/51, lifecycle 33/33, cache-clear 12/12,
+agent 30/30, litellm 34/34, aws 9/9, concurrency 21/21 — 219 checks. The
+litellm, aws and concurrency suites are the base's own and grew with it (agent
+and litellm are larger here than before the rebase); they matter here because
+the new target validation runs on every generation, including theirs.
