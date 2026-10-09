@@ -435,9 +435,11 @@ images and volumes.
   (`target: '/home/dev/.omp'`) broke the agent suite's unquoted `grep`; the
   assertion now accepts optional quotes. Mounts and agent were re-run green
   after the fix, and no other suite assumed the unquoted form.
-- **Not run:** real AWS authentication, an agent-assisted change and native
-  session resume (M1-07) — unchanged by this work; the agent suite's
-  unauthenticated legs merely re-passed.
+- **Not run in this work:** a real provider authentication, an assisted change
+  or a session resume — the runs above exercised the unauthenticated legs only.
+  Provider acceptance itself is recorded separately by the base's native
+  LiteLLM fixture proof (`docs/m1-apple-silicon-evidence-v2.md`); Bedrock
+  authentication remains pending.
 
 Both suite runs used synthetic fixture storage under `$HOME/.cache` only;
 their preserved host artifacts were left on disk for inspection, and no
