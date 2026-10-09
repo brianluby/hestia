@@ -100,6 +100,48 @@ grep -q "^name: hestia-" "$root/main.yaml" && ok "project name is the workspace 
 docker compose -f "$root/main.yaml" config >/dev/null 2>&1 &&
 	ok "generated compose file is valid" || bad "compose file invalid"
 
+echo "== agent state specs =="
+ws_id="$(sed -n 's/^name: //p' "$root/main.yaml")"
+grep -Eq "target: '?/home/dev/\.omp'?$" "$root/main.yaml" &&
+	ok "default agent state is omp's ~/.omp" || bad "default agent state bind missing"
+"$gen" --state codex --state gemini:/home/dev/.config/gemini \
+	--env GEMINI_CONFIG=/opt/gemini/policy.json \
+	--out "$root/multi.yaml" "$repo" 2>/dev/null
+[ "$(grep -c 'type: bind' "$root/multi.yaml")" -eq 4 ] &&
+	ok "--state replaces the default (two agent state binds)" || bad "--state bind count"
+grep -q "source: '$HESTIA_STATE_ROOT/$ws_id/codex'" "$root/multi.yaml" &&
+	grep -q "target: '/home/dev/.codex'" "$root/multi.yaml" &&
+	grep -q "target: '/home/dev/.config/gemini'" "$root/multi.yaml" &&
+	ok "--state NAME defaults to ~/.NAME, NAME:PATH uses the given container path" ||
+	bad "--state mounts wrong"
+[ -d "$HESTIA_STATE_ROOT/$ws_id/codex" ] && [ -d "$HESTIA_STATE_ROOT/$ws_id/gemini" ] &&
+	ok "the requested agent state dirs are created" || bad "agent state dirs wrong"
+grep -Eq "target: '?/home/dev/\.omp'?$" "$root/multi.yaml" &&
+	bad "--state output still inherited the default omp bind" ||
+	ok "explicit --state drops the default omp bind"
+grep -q "GEMINI_CONFIG: '/opt/gemini/policy.json'" "$root/multi.yaml" &&
+	ok "--env adds a service environment variable" || bad "--env not emitted"
+docker compose -f "$root/multi.yaml" config >/dev/null 2>&1 &&
+	ok "multi-agent compose file is valid" || bad "multi-agent compose file invalid"
+if "$gen" --state ../escape --out "$root/badstate.yaml" "$repo" >/dev/null 2>"$root/badstate.err"; then
+	bad "--state name cannot escape the state directory"
+else
+	grep -q -- "--state expects NAME" "$root/badstate.err" &&
+		ok "--state name cannot escape the state directory" ||
+		bad "unclear --state error: $(cat "$root/badstate.err")"
+	[ ! -e "$root/badstate.yaml" ] && ok "rejected --state wrote no file" || bad "rejected --state wrote a file"
+fi
+if "$gen" --state omp:relative --out "$root/badpath.yaml" "$repo" >/dev/null 2>&1; then
+	bad "relative --state container path rejected"
+else
+	ok "relative --state container path rejected"
+fi
+if "$gen" --env GOCACHE=/tmp/x --out "$root/badenv.yaml" "$repo" >/dev/null 2>&1; then
+	bad "--env override of a generated variable rejected"
+else
+	ok "--env override of a generated variable rejected"
+fi
+
 echo "== host/container agreement (through the generated compose file) =="
 status_host="$(git -C "$repo" status --porcelain=v2)"
 status_ctr="$(docker compose -f "$root/main.yaml" run --rm workspace git status --porcelain=v2 2>"$root/status.err")" || {
@@ -179,7 +221,6 @@ echo "== writes, caches, artifacts, state =="
 grep -q "linux-caches:/hestia/cache" "$root/main.yaml" &&
 	grep -q "GOCACHE: /hestia/cache/go/build" "$root/main.yaml" &&
 	ok "disposable Linux cache volume wired into the compose file" || bad "cache wiring missing"
-ws_id="$(sed -n 's/^name: //p' "$root/main.yaml")"
 [ -f "$HESTIA_STATE_ROOT/$ws_id/identity.record" ] &&
 	ok "durable state dir recorded with the workspace identity" || bad "state record missing"
 

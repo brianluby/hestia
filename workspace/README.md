@@ -9,7 +9,8 @@ Compose file for `docker compose -f ... run workspace ...`.
 ## Usage
 
 ```sh
-workspace/workspace-compose.sh [--image IMG] [--out FILE] <checkout-path>
+workspace/workspace-compose.sh [--image IMG] [--out FILE] \
+  [--state NAME[:CONTAINER_PATH]]... [--env NAME=VALUE]... <checkout-path>
 docker compose -f <file> run --rm workspace <command>   # one-off command
 workspace/workspace-lifecycle.sh start <file>           # persistent workspace
 ```
@@ -165,6 +166,36 @@ binds from the workspace state directory
 (`<state-root>/<workspace-id>/omp`), outside source and build context. It
 survives stop/remove-runtime/recreate like all durable state; `clear-caches`
 never touches it.
+
+That mount is an ordinary `--state` spec, not omp-specific wiring. A repeatable
+`--state NAME[:CONTAINER_PATH]` binds `<state-root>/<workspace-id>/NAME` at
+`CONTAINER_PATH`, defaulting to `/home/dev/.NAME` — so another harness gets its
+own durable state the same way (`--state codex` → `~/.codex`), and
+`--env NAME=VALUE` (repeatable) sets one service environment variable, for an
+agent that loads, say, its policy by variable. The value is written verbatim
+into the generated file and the container environment, so it is visible to
+anything that can inspect the container: never pass a credential value, supply
+credentials at runtime instead. `NAME` is a plain subdirectory name, so a state
+bind can never point outside the workspace state directory, and variable names
+the generator already emits — or a name given twice — are refused instead of
+being written twice. With no such flags, the single default is omp's
+`omp:/home/dev/.omp` and the output is unchanged; the generated file still
+carries `PI_CONFIG_FILES`, which only omp reads. Adding a harness still needs
+its own image stage — a different agent image is just a different `--image`.
+
+**PiG** is that second layer, built as `hestia-pig:<tag>` from the `pig` target
+(`docker build --target pig .`): a Go port of the Pi terminal coding agent, one
+native binary at `/usr/local/bin/pig` needing no Node.js, pinned to release
+v0.4.1 and verified by archive digest. Unlike omp it ships no provider policy
+— PiG authenticates through its own `/login` or provider API keys in its
+environment and documents no config overlay to anchor a policy outside the
+user-writable tree — and it deliberately does not sandbox model output, tools
+or shell commands, so this container is the boundary. Its config root `~/.pig`
+is ordinary agent state: generate with `--image hestia-pig:<tag> --state pig`
+to bind `<state-root>/<workspace-id>/pig` at `/home/dev/.pig` in place of the
+omp default. PiG is pre-1.0 (`0.4.1+1.0.3` when this was written) and its
+authentication, assisted work and session persistence are unverified here;
+only the image build and the offline binary were exercised.
 
 Real AWS/Bedrock credential-chain authentication remains unverified. The
 [LiteLLM fixture proof](../docs/m1-apple-silicon-evidence-v2.md) verifies real
