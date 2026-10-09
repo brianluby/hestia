@@ -161,7 +161,7 @@ fi
 if "$gen" --state "pig:$repo" --out "$root/collide.yaml" "$repo" >/dev/null 2>"$root/collide.err"; then
 	bad "--state target colliding with the checkout rejected"
 else
-	grep -q "already a mount target" "$root/collide.err" &&
+	grep -q "generated or image-owned path" "$root/collide.err" &&
 		ok "--state target colliding with the checkout rejected" ||
 		bad "unclear collision error: $(cat "$root/collide.err")"
 fi
@@ -190,6 +190,18 @@ else
 fi
 [ ! -e "$root/collide.yaml" ] && [ ! -e "$root/dup.yaml" ] && [ ! -e "$root/cacheclash.yaml" ] &&
 	ok "rejected targets wrote no file" || bad "a rejected target wrote a file"
+# A bind hides what is underneath, so paths the image owns are reserved too:
+# covering the toolchain, the policy or the installed binaries starts a
+# workspace that cannot run its own tools.
+for target in /home/dev /home/dev/.local/share/mise /home/dev/.config /opt/hestia/omp /usr/local/bin; do
+	if "$gen" --state "x:$target" --out "$root/hide.yaml" "$repo" >/dev/null 2>&1; then
+		bad "--state target over image-owned $target rejected"
+	else
+		ok "--state target over image-owned $target rejected"
+	fi
+done
+[ ! -e "$root/hide.yaml" ] &&
+	ok "rejected image-owned targets wrote no file" || bad "a rejected image-owned target wrote a file"
 
 echo "== host/container agreement (through the generated compose file) =="
 status_host="$(git -C "$repo" status --porcelain=v2)"
