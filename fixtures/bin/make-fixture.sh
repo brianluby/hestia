@@ -33,6 +33,16 @@ mkdir -p "$main" "$root/worktrees" "$root/snapshots"
 	echo "host: $(uname -srm)"
 	echo "git: $(git --version)"
 	echo "mise: $(mise --version)"
+	# macOS container runtimes share only what their VM mounts (Colima: $HOME),
+	# and an unshared path mounts empty rather than failing — the default
+	# $TMPDIR is under /var/folders, not /tmp, so say so before a workspace is
+	# generated for this fixture.
+	case "$root" in
+	"$HOME"/*) : ;;
+	*)
+		echo "warning: this root is outside \$HOME — on macOS runtimes only shared paths are visible inside containers, so a workspace mounting it may see an empty directory; set TMPDIR under \$HOME if you plan to mount this fixture"
+		;;
+	esac
 } | tee "$log"
 
 run() {

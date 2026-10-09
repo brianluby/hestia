@@ -27,3 +27,8 @@
 **/.cache
 **/.tmp
 **/*.log
+
+# Not read by any COPY in the Dockerfile: documentation and test suites never
+# need to enter the build context
+docs/
+tests/

@@ -230,8 +230,11 @@ else
 	grep -q "must be an absolute path" "$root/rel.err" &&
 		ok "relative state root fails clearly before writing anything" ||
 		bad "unclear relative-root error: $(cat "$root/rel.err")"
-	[ ! -e "$root/rel.yaml" ] && [ ! -e "$root/relstate/hestia-"* ] 2>/dev/null &&
-		ok "rejected relative root wrote no file or state" || ok "rejected relative root wrote no compose file"
+	if [ ! -e "$root/rel.yaml" ] && [ -z "$(find "$root/relstate" -name 'hestia-*' -print -quit)" ]; then
+		ok "rejected relative root wrote no file or state"
+	else
+		bad "rejected relative root wrote a compose file or state"
+	fi
 fi
 
 echo "== failure modes =="

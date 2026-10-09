@@ -28,7 +28,8 @@ You need:
 - Network access for explicit image/tool downloads; optional agent testing also
   needs provider access and an approved AWS authentication method.
 - A directory under your home that Docker can bind-mount. Do not use macOS
-  `/tmp`: earlier testing observed empty mounts there.
+  `/tmp` or the default `$TMPDIR` under `/var/folders`: earlier testing observed
+  empty mounts at unshared paths.
 
 Open **Bash** in the Hestia checkout. Keep this host shell for all numbered steps;
 commands marked “inside the container” run in an attached shell instead.
@@ -108,7 +109,7 @@ runbook; it is not a published release.
 
 ```sh
 IMAGE="hestia-fixture-tools:tester"
-time docker build --target fixture-tools -t "$IMAGE" "$HESTIA"
+time docker build --platform linux/arm64 --target fixture-tools -t "$IMAGE" "$HESTIA"
 docker image inspect "$IMAGE" --format '{{.Id}} {{.Os}}/{{.Architecture}} user={{.Config.User}}'
 "$HESTIA/workspace/workspace-compose.sh" --image "$IMAGE" --out "$COMPOSE" "$REPO"
 cat "$COMPOSE"
@@ -329,7 +330,7 @@ result from the unauthenticated smoke test.
 
    ```sh
    AGENT_IMAGE="hestia-agent:tester"
-   docker build --target agent -t "$AGENT_IMAGE" "$HESTIA"
+   docker build --platform linux/arm64 --target agent -t "$AGENT_IMAGE" "$HESTIA"
    "$HESTIA/workspace/workspace-lifecycle.sh" stop "$COMPOSE"
    "$HESTIA/workspace/workspace-lifecycle.sh" remove-runtime "$COMPOSE"
    "$HESTIA/workspace/workspace-compose.sh" --image "$AGENT_IMAGE" --out "$COMPOSE" "$REPO"
@@ -426,7 +427,7 @@ The Docker suites currently use fixed local image tags, not an image override.
 Build those tags explicitly from the same Dockerfile (this may reuse build cache):
 
 ```sh
-docker build --target fixture-tools -t hestia-fixture-tools:2026-09-09 "$HESTIA"
+docker build --platform linux/arm64 --target fixture-tools -t hestia-fixture-tools:2026-09-09 "$HESTIA"
 ```
 
 Run suites separately. Each creates its own fixture under `$HOME/.cache`, uses
@@ -442,7 +443,7 @@ overrides in a subshell; some suite calls use Compose directly.
 Optional agent-layer regression (no real credentials required):
 
 ```sh
-docker build --target agent -t hestia-agent:2026-09-09 "$HESTIA"
+docker build --platform linux/arm64 --target agent -t hestia-agent:2026-09-10 "$HESTIA"
 (unset COMPOSE_PROJECT_NAME COMPOSE_FILE; KEEP_ARTIFACTS=1 bash "$HESTIA/tests/workspace-agent.test.sh")
 ```
 

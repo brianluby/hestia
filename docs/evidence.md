@@ -400,3 +400,73 @@ legacy-builder deprecation warning. The first harness invocation supplied
 the script over stdin, which Compose exec consumed; the complete successful
 run used `bash -c` instead. Synthetic directories, containers, networks and
 cache volumes from both attempts were removed; the built image tag remains.
+## Review fixes re-verified — 2026-10-08
+
+Host: macOS 27.0 arm64, Colima `default` profile (macOS Virtualization.Framework,
+vmType `vz`, mountType `virtiofs`; Docker client 29.8.2, server 29.5.2
+linux/aarch64, driver overlayfs; both builds used the legacy builder, which
+emitted only its deprecation warning). The VM was restarted first: guest
+`exec` and `/var/lib/docker` writes were failing with EIO (`colima ssh` could
+not run a binary), so *every* Docker operation failed before the restart.
+`colima delete` was deliberately not used — that VM also holds unrelated
+images and volumes.
+
+- **Builds**, both from the canonical Dockerfile and fresh:
+  `--target fixture-tools -t hestia-fixture-tools:2026-09-09` in 34 s →
+  `sha256:85ca52d20159…f0d9`, linux/arm64, user `dev`, 175,488,126 bytes. The
+  mise SLSA provenance verification is part of one layer of this build and it
+  completed; the in-image fixture build/test printed
+  `ok example.com/hestia-synthetic/greet`. `--target agent -t
+  hestia-agent:2026-09-10` → `sha256:164236feb712…ae8d`, 258,907,713 bytes.
+- **Suites, all exit 0:** mounts 42/42, lifecycle 32/32, cache-clear 12/12,
+  agent 24/24, identity 20/20, fixture-snapshot 7/7 — 137 checks. These are
+  this run's counts, not the historical totals above.
+- **Agent state mounts are data, not omp-specific wiring.** The new mounts
+  checks covered `--state NAME[:CONTAINER_PATH]` (default
+  `omp:/home/dev/.omp`) and `--env NAME=VALUE`: default output unchanged (3
+  binds main, 4 worktree), explicit `--state` replacing the default bind,
+  state directories created under the workspace state directory, container
+  path overrides, and rejection of names that would escape the state
+  directory, relative container paths, and generator-owned variable names.
+  `workspace-lifecycle.sh validate` accepted a two-state file (identity
+  revalidation unaffected) and still refused a tampered record.
+- **One regression, caught by the suite.** Emitting the bind target quoted
+  (`target: '/home/dev/.omp'`) broke the agent suite's unquoted `grep`; the
+  assertion now accepts optional quotes. Mounts and agent were re-run green
+  after the fix, and no other suite assumed the unquoted form.
+- **Not run:** real AWS authentication, an agent-assisted change and native
+  session resume (M1-07) — unchanged by this work; the agent suite's
+  unauthenticated legs merely re-passed.
+
+Both suite runs used synthetic fixture storage under `$HOME/.cache` only;
+their preserved host artifacts were left on disk for inspection, and no
+hestia containers or cache volumes remained afterwards (the `*_linux-caches`
+volumes still present date from 2026-09-09/09-10/10-03).
+
+### BuildKit re-check, same host, later the same day
+
+buildx v0.38.0 (Homebrew) / BuildKit v0.30.0 became available on the Colima
+`docker` driver, so both targets were rebuilt from the unchanged Dockerfile
+with `docker buildx build --platform linux/arm64 --load` to probe tags:
+fixture-tools `sha256:a5db334aed17…` (175,489,649 bytes) and agent
+`sha256:753390ca2841…` (258,909,681 bytes) — linux/arm64, user `dev`, within
+~2 kB of the legacy-builder sizes above. (BuildKit exports a manifest list, so
+the digest it records is the manifest-list digest; the agent digest is from a
+post-lint-fix rebuild that was a cache hit on unchanged layers.)
+
+Running both probe images with `--network none` re-confirmed the offline
+contract on the new builder: uid 1000, mise `2026.9.4 linux-arm64`,
+`go1.27.1 linux/arm64`, `omp/18.1.16`, and `/opt/hestia/omp/config.yml` still
+`root:root`.
+
+`docker buildx build --check` reports exactly one finding and **exits 1** on it:
+`FromPlatformFlagConstDisallowed` at the pinned `FROM --platform=linux/arm64`.
+Keeping the constant is deliberate — the mise and cosign downloads in that
+file are arm64-only, and deriving the base platform from a build argument is
+what previously let the base and those downloads disagree — so the rule is now
+skipped by a `# check=…` directive beside it, with the reason in the comment.
+After that, `--check` is clean (rc 0) for both targets, and the build output is
+unchanged. The probe tags were removed; the `2026-09-09`/`2026-09-10` tags
+still point at the legacy-builder images recorded above, and the next real
+build will replace them under BuildKit.
+

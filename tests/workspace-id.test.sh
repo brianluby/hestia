@@ -22,6 +22,15 @@ bash -n "$wid" || {
 	echo "FAIL - identity helper has syntax errors" >&2
 	exit 1
 }
+lib="$here/identity/lib.sh"
+[ -f "$lib" ] || {
+	echo "FAIL - shared helper library missing: $lib" >&2
+	exit 1
+}
+bash -n "$lib" || {
+	echo "FAIL - shared helper library has syntax errors" >&2
+	exit 1
+}
 
 tmp_base="${TMPDIR:-/tmp}"
 root="$(mktemp -d "${tmp_base%/}/hestia-id-test-XXXXXXXX")"
@@ -116,6 +125,9 @@ out1="$("$wid" --state-dir "$st" "$root/x/collide")"
 out2="$("$wid" --state-dir "$st" "$root/x/collide")"
 [ "$out1" = "$out2" ] && [ -f "$st/identity.record" ] &&
 	ok "first --state-dir use records, reuse passes" || bad "state record round-trip"
+[ "$(ls -A "$st")" = "identity.record" ] &&
+	ok "state dir holds only the identity record" ||
+	bad "stray files in state dir: $(ls -A "$st" | tr '\n' ' ')"
 mv "$root/x/collide" "$root/x/collide-moved"
 if "$wid" --state-dir "$st" "$root/x/collide-moved" >"$root/err.txt" 2>&1; then
 	bad "moved checkout fails against old state"
