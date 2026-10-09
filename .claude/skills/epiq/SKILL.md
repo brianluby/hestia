@@ -20,7 +20,7 @@ description: Workflow for working an epiq issue board through the epiq MCP — t
 - **Prompt user for closing tickets and big decisions**
 - **Park decisions that are the user's to make.** A design fork, a change with blast radius beyond its ticket, anything you'd want a second opinion on - file a ticket tagged human-input-needed naming the options and the trade-offs, then carry on with whatever doesn't depend on the answer.
 - **Link commits** by starting the subject with the ticket's `ref` from the MCP response — never derive the ref from the id.
-- *If a you decide to take a new approach*, add a "fork" tag, and document the fork in a comment, also, update the description to reflect the new plan.
+- *If you decide to take a new approach*, add a "fork" tag, and document the fork in a comment, also, update the description to reflect the new plan.
 - **Attachments are permanent** in every clone (max 500 KB): only when a picture is needed, make sure images are cropped and compressed. An oversized image is permanent, for everybody — the same reason the text limits exist.
 - **Be concise.** Titles, descriptions, and comments should be scannable, not essays.
 - **When a ticket is done, Document the outcome in a comment starting with "Solution:"**. Use that exact prefix as the comment's opening line.

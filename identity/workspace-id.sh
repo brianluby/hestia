@@ -161,6 +161,9 @@ if [ -n "$state_dir" ]; then
 		printf 'canonical: %s\nrepo-group: %s\nworkspace: %s\n' \
 			"$canonical" "$repo_group" "$workspace_id" >"$tmp"
 		chmod 600 "$tmp"
+		# The hard link is the durable record; the temporary name must not
+		# survive any path out of here, including the fail paths below.
+		trap 'rm -f "$tmp"' EXIT
 		# Atomic create-if-absent: concurrent first writers converge on one
 		# record; the loser's verification of the winner's record must agree.
 		if ! ln "$tmp" "$record" 2>/dev/null; then
@@ -169,9 +172,6 @@ if [ -n "$state_dir" ]; then
 				fail "state in $state_dir was concurrently created for a different checkout; refusing to reuse it for $canonical"
 			fi
 		fi
-		# The hard link is the durable record; the temp name never stays, so
-		# the state directory holds exactly identity.record.
-		rm -f "$tmp"
 	fi
 fi
 

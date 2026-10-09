@@ -16,7 +16,12 @@
 #   - one durable agent-state directory per --state SPEC, named after the
 #     agent: a subdirectory of the state directory, bound at its own
 #     container path (default /home/dev/.<name>). Without --state the single
-#     default is omp's `omp` → /home/dev/.omp.
+#     default is omp's `omp` → /home/dev/.omp. The state directory itself
+#     stays bound at its identical path (first bullet), so the container can
+#     also reach the other agents' state under it: --state chooses where the
+#     harness is pointed, not what is reachable. One workspace variant per
+#     checkout is the supported model (ADR-003), and each state target must
+#     be its own container path.
 # --env NAME=VALUE adds one service environment variable for an agent that
 # loads, say, a policy overlay by variable; names the generator owns are
 # refused rather than silently emitted twice, and a name given twice is
@@ -84,6 +89,7 @@ while [ "$#" -gt 0 ]; do
 		[ "$#" -ge 2 ] || usage
 		spec="$2"
 		name="${spec%%:*}"
+		reject_unsafe_value "$name" "state name"
 		printf '%s' "$name" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9_-]*$' ||
 			fail "--state expects NAME or NAME:CONTAINER_PATH, with NAME limited to letters, digits, _ and - : $spec"
 		case "$spec" in
@@ -96,6 +102,7 @@ while [ "$#" -gt 0 ]; do
 		[ "$#" -ge 2 ] || usage
 		name="${2%%=*}"
 		[ "$name" != "$2" ] || fail "--env expects NAME=VALUE (got: $2)"
+		reject_unsafe_value "$name" "environment variable name"
 		printf '%s' "$name" | grep -Eq '^[A-Za-z_][A-Za-z0-9_]*$' ||
 			fail "invalid environment variable name: $name"
 		case "$name" in
@@ -224,6 +231,28 @@ state_target() {
 	*) printf '/home/dev/.%s' "${1%%:*}" ;;
 	esac
 }
+
+# Compose needs one mount per container target: a state target that repeats a
+# generated target (the checkout, the Git metadata, the state directory) or
+# another state target would hide it or fail at up rather than here. Validate
+# every target before creating any directory. A target can name a generated
+# mount through a symlinked spelling (macOS /var → /private/var) and still land
+# on it inside the container, so physical paths are compared where the target
+# exists on this host.
+state_dir_phys="$(cd "$state_dir" 2>/dev/null && pwd -P)" || state_dir_phys="$state_dir"
+state_targets=()
+for spec in "${state_specs[@]}"; do
+	target="$(state_target "$spec")"
+	probe="$target"
+	if [ -d "$target" ]; then
+		probe="$(cd "$target" && pwd -P)"
+	fi
+	for b in "${git_paths[@]}" "$state_dir" "$state_dir_phys" ${state_targets[@]+"${state_targets[@]}"}; do
+		[ "$probe" != "$b" ] ||
+			fail "--state target '$target' is already a mount target of this workspace; give each state its own container path"
+	done
+	state_targets+=("$probe")
+done
 
 for spec in "${state_specs[@]}"; do
 	mkdir -p "$state_dir/${spec%%:*}"

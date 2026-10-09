@@ -176,9 +176,16 @@ agent that loads, say, its policy by variable. The value is written verbatim
 into the generated file and the container environment, so it is visible to
 anything that can inspect the container: never pass a credential value, supply
 credentials at runtime instead. `NAME` is a plain subdirectory name, so a state
-bind can never point outside the workspace state directory, and variable names
-the generator already emits — or a name given twice — are refused instead of
-being written twice. With no such flags, the single default is omp's
+bind can never point outside the workspace state directory; each `--state`
+target must also be its own container path, since Compose wants one mount per
+target. Note what the state directory bind means: it is mounted at its
+identical path, so the container reaches **every** agent state tree under it —
+`--state` chooses where the harness is pointed, not what is reachable, and a
+PiG workspace can therefore read a sibling omp state tree. Running one variant
+per checkout is the supported model (ADR-003), which is what keeps that from
+mattering; fencing one checkout's agents from each other would mean splitting
+identity/general state from agent-private state, which is not implemented. With
+no such flags, the single default is omp's
 `omp:/home/dev/.omp` and the output is unchanged; the generated file still
 carries `PI_CONFIG_FILES`, which only omp reads. Adding a harness still needs
 its own image stage — a different agent image is just a different `--image`.
