@@ -553,6 +553,12 @@ from the PR's reviewers (Codex, CodeRabbit, Copilot).
   macOS) is a distinct destination there and must not be refused. A second
   review round caught that, and that the cache volume's `/hestia/cache` was
   missing from the reserved set.
+- **Image-owned paths (Codex, second re-review).** A state target could also sit
+  on or above a path the image owns — `/home/dev`, mise's toolchain and config,
+  `/usr/local/bin`, `/opt/hestia/omp` — where a bind hides what is underneath
+  and starts a workspace that cannot run its own tools. Those paths are now
+  reserved in both directions (a target may neither repeat one nor be its
+  ancestor), with tests covering five of them plus the valid shapes.
 - **Test gap (Momus).** The `stop` branch reporting that no workspace container
   exists was only checked by hand; the lifecycle suite now asserts both its
   message and its exit status.
@@ -561,8 +567,8 @@ from the PR's reviewers (Codex, CodeRabbit, Copilot).
   than identical — accepted deliberately.
 
 Suites after the fixes, all exit 0, no skips, on the rebased tree: identity
-22/22, fixture-snapshot 7/7, mounts 51/51, lifecycle 33/33, cache-clear 12/12,
-agent 30/30, litellm 34/34, aws 9/9, concurrency 21/21 — 219 checks. The
+22/22, fixture-snapshot 7/7, mounts 57/57, lifecycle 33/33, cache-clear 12/12,
+agent 30/30, litellm 34/34, aws 9/9, concurrency 21/21 — 225 checks. The
 litellm, aws and concurrency suites are the base's own and grew with it (agent
 and litellm are larger here than before the rebase); they matter here because
 the new target validation runs on every generation, including theirs.

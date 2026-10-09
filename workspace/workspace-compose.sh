@@ -16,12 +16,15 @@
 #   - one durable agent-state directory per --state SPEC, named after the
 #     agent: a subdirectory of the state directory, bound at its own
 #     container path (default /home/dev/.<name>). Without --state the single
-#     default is omp's `omp` → /home/dev/.omp. The state directory itself
-#     stays bound at its identical path (first bullet), so the container can
-#     also reach the other agents' state under it: --state chooses where the
-#     harness is pointed, not what is reachable. One workspace variant per
-#     checkout is the supported model (ADR-003), and each state target must
-#     be its own container path.
+#     default is omp's `omp` → /home/dev/.omp. A target must not repeat
+#     another mount target or sit above one, and the image-owned paths (mise's
+#     toolchain and config, /usr/local/bin, /opt/hestia/omp, the cache volume)
+#     are reserved in both directions: a state mount there would hide the
+#     tools, the policy or the cache rather than fail. The state directory
+#     itself stays bound at its identical path (first bullet), so the container
+#     can also reach the other agents' state under it: --state chooses where
+#     the harness is pointed, not what is reachable. One workspace variant per
+#     checkout is the supported model (ADR-003).
 # --env NAME=VALUE adds one service environment variable for an agent that
 # loads, say, a policy overlay by variable; names the generator owns are
 # refused rather than silently emitted twice, and a name given twice is
@@ -235,15 +238,35 @@ state_target() {
 # Compose wants one mount per container target, and a target names a path inside
 # the container: the emitted target strings are compared, not host paths, because
 # a spelling that resolves to one directory on the host (/var vs /private/var on
-# macOS) is still a distinct destination in the container. A state target that
-# repeats a generated target would hide it, so every target is validated before
-# any directory is created.
+# macOS) is still a distinct destination in the container. Reserved are the
+# generated targets and the paths the image owns — mise's toolchain and config,
+# the installed binaries, the agent policy, the cache volume — in both
+# directions, so a state mount can neither repeat a target nor sit above one and
+# hide what is underneath. Every target is validated before any directory is
+# created.
+state_reserved=(
+	"${git_paths[@]}"
+	"$state_dir"
+	/hestia/cache
+	/home/dev/.local/share/mise
+	/home/dev/.config/mise
+	/usr/local/bin
+	/opt/hestia/omp
+)
 state_targets=()
 for spec in "${state_specs[@]}"; do
 	target="$(state_target "$spec")"
-	for b in "${git_paths[@]}" "$state_dir" /hestia/cache ${state_targets[@]+"${state_targets[@]}"}; do
-		[ "$target" != "$b" ] ||
-			fail "--state target '$target' is already a mount target of this workspace; give each state its own container path"
+	for b in "${state_reserved[@]}" ${state_targets[@]+"${state_targets[@]}"}; do
+		case "$target" in
+		"$b" | "$b"/*)
+			fail "--state target '$target' repeats or lies inside '$b', a generated or image-owned path; give each state its own container directory"
+			;;
+		esac
+		case "$b" in
+		"$target"/*)
+			fail "--state target '$target' would hide '$b', a generated or image-owned path; give each state its own container directory"
+			;;
+		esac
 	done
 	state_targets+=("$target")
 done
