@@ -545,9 +545,12 @@ from the PR's reviewers (Codex, CodeRabbit, Copilot).
   directory creation, bind paths and YAML keys. Both now pass the shared value
   check first.
 - **Colliding targets (CodeRabbit).** Real: a `--state` target could repeat the
-  checkout, the Git metadata, the state directory or another state target
-  (`config` accepts it, `up` fails). Targets are validated before any state
-  directory is created, comparing the emitted container paths — the first
+  checkout, the Git metadata, the state directory or another state target. The
+  duplicate shapes fail loudly in the loader (`target /home/dev/.omp already
+  mounted as services.workspace.volumes[2]`); the ancestor shapes — a target
+  hiding what sits underneath it — are the ones Compose cannot see at all.
+  Targets are validated before any state directory is created, comparing the
+  emitted container paths — the first
   attempt resolved host paths instead, which was wrong: a `target` names a path
   inside the container, so a host symlink spelling (`/var` → `/private/var` on
   macOS) is a distinct destination there and must not be refused. A second
@@ -572,3 +575,46 @@ agent 30/30, litellm 34/34, aws 9/9, concurrency 21/21 — 225 checks. The
 litellm, aws and concurrency suites are the base's own and grew with it (agent
 and litellm are larger here than before the rebase); they matter here because
 the new target validation runs on every generation, including theirs.
+
+## Follow-up review of that remediation — 2026-10-13
+
+Host: macOS 27.0.0 arm64, Colima, Docker 29.5.2 server. Reviewing the four
+`GF5Y28N` commits found the reserved-path guard incomplete, plus two smaller
+holes.
+
+- **Reserved paths were still reachable, silently.** The comparison used the
+  emitted target string, while Compose cleans a target before mounting it.
+  `--state x:/home/dev/.omp/../../../usr/local/bin` passed every check, and
+  `docker compose config` then printed `target: /usr/local/bin` — a bind over the
+  installed binaries, the exact failure the reservation exists to prevent.
+  Targets with a `.` or `..` segment, with a doubled `/`, or equal to the
+  container root (the ancestor of every reserved path, which the prefix
+  comparison cannot see) are now refused before anything is written. Measured
+  afterwards: those four refused, `x:/home/dev/.a..b` and `x:/home/dev/.omp/`
+  still accepted, and the emitted file byte-identical to the previous generator
+  for a valid invocation.
+- **How loud the other shapes are (evidence correction).** The entry above said a
+  colliding target was accepted by `config` and failed at `up`. Measured, the
+  duplicate shapes are rejected by `docker compose config` itself
+  (`target /home/dev/.omp already mounted as services.workspace.volumes[2]`) and
+  the daemon rejects a `/` destination (`destination can't be '/'`); the
+  ancestor — hiding — shapes are the ones nothing but the generator can see. The
+  entry above is corrected accordingly, and the generator now refuses all of
+  them earlier and with its own message.
+- **Leftover-record window.** The `EXIT` trap was armed after the temporary file
+  had been written and chmodded, so a failure in that window (ENOSPC, chmod
+  denied) still left `identity.record.XXXXXX` in the state directory. The trap
+  is armed immediately after `mktemp` now.
+- **One name per emitted path.** `/opt/hestia/omp` and `/hestia/cache` were
+  spelled both in the reserved list and in the emitted file; each is one
+  variable now, so a later change cannot leave the reservation stale.
+- **Fixture path spelling (test).** The mounts suite's collision probe compared
+  the fixture path as written; it now resolves it with `pwd -P`, which is what
+  the generator emits, so the probe cannot go vacuous on a host whose home
+  traverses a symlink.
+
+Suites after this follow-up, all exit 0, on this tree: identity 22/22,
+fixture-snapshot 7/7, mounts 62/62 (five new checks: four refused spellings and
+the no-file assertion), lifecycle 33/33, cache-clear 12/12, agent 30/30,
+litellm 34/34, aws 9/9, concurrency 21/21 — 230 checks. As above, litellm's real
+endpoint acceptance and aws authenticated inference are not run here.
