@@ -181,7 +181,10 @@ target must also be its own container path, since Compose wants one mount per
 target, and it must not sit on or above a path the workspace needs — the
 checkout, the Git metadata, the state directory, the cache volume, or the
 image-owned mise toolchain, `/usr/local/bin` and `/opt/hestia/omp` — because a
-bind hides whatever it covers. `--state codex` → `/home/dev/.codex` is the
+bind hides whatever it covers. It must be a plain path: a `.` or `..` segment or
+a doubled `/` is refused, since Compose cleans the target before mounting and
+`/home/dev/.omp/../../../usr/local/bin` would otherwise reach the installed
+binaries unnoticed. `--state codex` → `/home/dev/.codex` is the
 intended shape. Note what the state directory bind means: it is mounted at its
 identical path, so the container reaches **every** agent state tree under it —
 `--state` chooses where the harness is pointed, not what is reachable, and a

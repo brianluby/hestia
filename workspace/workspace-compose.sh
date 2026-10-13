@@ -16,8 +16,10 @@
 #   - one durable agent-state directory per --state SPEC, named after the
 #     agent: a subdirectory of the state directory, bound at its own
 #     container path (default /home/dev/.<name>). Without --state the single
-#     default is omp's `omp` → /home/dev/.omp. A target must not repeat
-#     another mount target or sit above one, and the image-owned paths (mise's
+#     default is omp's `omp` → /home/dev/.omp. A target must be a plain
+#     absolute path — a '.', '..' or empty segment is refused, because the
+#     loader cleans those before mounting — must not repeat another mount
+#     target or sit above one, and the image-owned paths (mise's
 #     toolchain and config, /usr/local/bin, /opt/hestia/omp, the cache volume)
 #     are reserved in both directions: a state mount there would hide the
 #     tools, the policy or the cache rather than fail. The state directory
@@ -244,18 +246,37 @@ state_target() {
 # directions, so a state mount can neither repeat a target nor sit above one and
 # hide what is underneath. Every target is validated before any directory is
 # created.
+#
+# The image-owned paths this file also emits are named once here, so the
+# reserved list below and the emitted file cannot drift apart. The mise install
+# dirs stay literal: their container paths live in the Dockerfile
+# (MISE_DATA_DIR and the config directory), which this generator does not read.
+policy_dir=/opt/hestia/omp
+cache_dir=/hestia/cache
 state_reserved=(
 	"${git_paths[@]}"
 	"$state_dir"
-	/hestia/cache
+	"$cache_dir"
 	/home/dev/.local/share/mise
 	/home/dev/.config/mise
 	/usr/local/bin
-	/opt/hestia/omp
+	"$policy_dir"
 )
 state_targets=()
 for spec in "${state_specs[@]}"; do
 	target="$(state_target "$spec")"
+	# Compose path-cleans a target, so '/' duplication or a '.'/'..' segment
+	# would land the bind elsewhere and slip past the comparison below: with
+	# them, /home/dev/.omp/../../../usr/local/bin reaches the installed
+	# binaries and /home/dev//.omp repeats a target, both silently. The root is
+	# refused too: it is the ancestor of every reserved path, and the
+	# first-component comparison below cannot see '/' (the daemon only says
+	# "destination can't be '/'" after the file is written).
+	case "$target" in
+	/ | *//* | */./* | */../* | */. | */..)
+		fail "--state container path must be a plain absolute path with no '.', '..' or empty segments: $target"
+		;;
+	esac
 	for b in "${state_reserved[@]}" ${state_targets[@]+"${state_targets[@]}"}; do
 		case "$target" in
 		"$b" | "$b"/*)
@@ -307,7 +328,7 @@ emit() {
 		echo "        source: '$(sq "$state_dir/${s%%:*}")'"
 		echo "        target: '$(sq "$(state_target "$s")")'"
 	done
-	echo "      - linux-caches:/hestia/cache"
+	echo "      - linux-caches:$cache_dir"
 	# Host and container UIDs differ; git only operates on repositories it
 	# considers safely owned. Scope the exception to exactly the mounted
 	# Git paths via protected environment config (honored since git 2.31;
@@ -322,12 +343,12 @@ emit() {
 	done
 	# Disposable Linux build/dependency caches live in the workspace volume,
 	# never in the shared source tree or the durable state directory.
-	echo "      GOCACHE: /hestia/cache/go/build"
-	echo "      GOMODCACHE: /hestia/cache/go/mod"
+	echo "      GOCACHE: $cache_dir/go/build"
+	echo "      GOMODCACHE: $cache_dir/go/mod"
 	# Provider-restriction policy overlay (FA5H9TR): root-owned in the image,
 	# merged after the user's own config so it cannot be overridden, and
 	# fail-closed (omp errors out when a configured overlay is missing).
-	echo "      PI_CONFIG_FILES: /opt/hestia/omp/config.yml"
+	echo "      PI_CONFIG_FILES: $policy_dir/config.yml"
 	# --env entries, last so a reader sees agent-specific values together.
 	# ${arr[@]+...} keeps an empty list valid under set -u on bash 3.2.
 	local e

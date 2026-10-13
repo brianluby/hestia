@@ -80,7 +80,7 @@ if [ "$fx_count" -ne 1 ] || [ -z "$fx" ] || [ ! -d "$fx" ]; then
 	echo "FAIL - fixture root not uniquely parsed from make-fixture log" >&2
 	exit 1
 fi
-repo="$fx/repo"
+repo="$(cd "$fx/repo" && pwd -P)"
 cp "$repo/NOTES.md" "$root/NOTES.md.orig"
 export HESTIA_STATE_ROOT="$root/hestia-state"
 
@@ -202,6 +202,19 @@ for target in /home/dev /home/dev/.local/share/mise /home/dev/.config /opt/hesti
 done
 [ ! -e "$root/hide.yaml" ] &&
 	ok "rejected image-owned targets wrote no file" || bad "a rejected image-owned target wrote a file"
+# Compose path-cleans a target, so an unnormalized spelling would land the bind
+# somewhere the comparison never inspected: the first reaches the installed
+# binaries, the next two repeat a target, and the root is every reserved
+# path's ancestor (the daemon only refuses it after the file is written).
+for bad_target in '/home/dev/.omp/../../../usr/local/bin' '/home/dev//.omp' '/home/dev/./.omp' '/'; do
+	if "$gen" --state "x:$bad_target" --out "$root/clean.yaml" "$repo" >/dev/null 2>&1; then
+		bad "unnormalized target accepted: $bad_target"
+	else
+		ok "unnormalized target rejected: $bad_target"
+	fi
+done
+[ ! -e "$root/clean.yaml" ] &&
+	ok "rejected unnormalized targets wrote no file" || bad "a rejected unnormalized target wrote a file"
 
 echo "== host/container agreement (through the generated compose file) =="
 status_host="$(git -C "$repo" status --porcelain=v2)"
