@@ -158,12 +158,13 @@ if [ -n "$state_dir" ]; then
 		[ -d "$state_dir" ] || mkdir -p "$state_dir"
 		chmod 700 "$state_dir"
 		tmp="$(mktemp "$state_dir/identity.record.XXXXXX")"
+		# The hard link is the durable record; the temporary name must not
+		# survive any path out of here — writing it, chmodding it, or the fail
+		# paths below — so the trap is armed before the file has content.
+		trap 'rm -f "$tmp"' EXIT
 		printf 'canonical: %s\nrepo-group: %s\nworkspace: %s\n' \
 			"$canonical" "$repo_group" "$workspace_id" >"$tmp"
 		chmod 600 "$tmp"
-		# The hard link is the durable record; the temporary name must not
-		# survive any path out of here, including the fail paths below.
-		trap 'rm -f "$tmp"' EXIT
 		# Atomic create-if-absent: concurrent first writers converge on one
 		# record; the loser's verification of the winner's record must agree.
 		if ! ln "$tmp" "$record" 2>/dev/null; then
