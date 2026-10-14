@@ -17,10 +17,12 @@
 #     agent: a subdirectory of the state directory, bound at its own
 #     container path (default /home/dev/.<name>). Without --state the single
 #     default is omp's `omp` → /home/dev/.omp. A target must be a plain
-#     absolute path — a '.', '..' or empty segment is refused, because the
-#     loader cleans those before mounting — must not repeat another mount
-#     target or sit above one, and the image-owned paths (mise's
-#     toolchain and config, /usr/local/bin, /opt/hestia/omp, the cache volume)
+#     absolute path — a '.', '..' or empty segment is refused and a trailing
+#     '/' dropped, because the loader cleans those before mounting — and it
+#     is checked before anything, the state directory included, is created. It
+#     must not repeat another mount target or sit above one, and the
+#     image-owned paths (mise's toolchain and config, /usr/local/bin,
+#     /opt/hestia/omp, the cache volume)
 #     are reserved in both directions: a state mount there would hide the
 #     tools, the policy or the cache rather than fail. The state directory
 #     itself stays bound at its identical path (first bullet), so the container
@@ -207,11 +209,6 @@ case "$state_root" in
 	;;
 esac
 state_dir="$state_root/$workspace_id"
-if [ -e "$state_dir" ] && [ ! -w "$state_dir" ]; then
-	fail "state directory exists but is not writable: $state_dir — fix its ownership/permissions before starting this workspace"
-fi
-"$wid" --state-dir "$state_dir" "$checkout" >/dev/null 2>&1 ||
-	fail "state identity check failed for $state_dir — it may be recorded for a different checkout; inspect $state_dir/identity.record, then reattach or rehome the state explicitly"
 
 # Agent state (XJVWF4K): each --state NAME[:CONTAINER_PATH] gets a directory
 # under the workspace state tree, created here dev-owned, and bound at its
@@ -230,11 +227,20 @@ fi
 # loaded by env var rather than a bind because mounting the state dir at
 # ~/.omp would hide any image copy under that tree, and binding a read-only
 # file into it made omp's atomic settings writes fail (EBUSY).
+#
+# Trailing slashes are dropped (the root keeps its own): the loader does the
+# same, and left in place /usr/local/ would not match the ancestor pattern
+# "/usr/local/"/* against /usr/local/bin and would hide it unnoticed.
 state_target() {
+	local t
 	case "$1" in
-	*:*) printf '%s' "${1#*:}" ;;
-	*) printf '/home/dev/.%s' "${1%%:*}" ;;
+	*:*) t="${1#*:}" ;;
+	*) t="/home/dev/.${1%%:*}" ;;
 	esac
+	while [ "$t" != / ] && [ "${t%/}" != "$t" ]; do
+		t="${t%/}"
+	done
+	printf '%s' "$t"
 }
 
 # Compose wants one mount per container target, and a target names a path inside
@@ -291,6 +297,15 @@ for spec in "${state_specs[@]}"; do
 	done
 	state_targets+=("$target")
 done
+
+# The identity check creates the state directory and its record on first use,
+# so it runs only once every target has been accepted: a refused target leaves
+# a fresh state root untouched.
+if [ -e "$state_dir" ] && [ ! -w "$state_dir" ]; then
+	fail "state directory exists but is not writable: $state_dir — fix its ownership/permissions before starting this workspace"
+fi
+"$wid" --state-dir "$state_dir" "$checkout" >/dev/null 2>&1 ||
+	fail "state identity check failed for $state_dir — it may be recorded for a different checkout; inspect $state_dir/identity.record, then reattach or rehome the state explicitly"
 
 for spec in "${state_specs[@]}"; do
 	mkdir -p "$state_dir/${spec%%:*}"
