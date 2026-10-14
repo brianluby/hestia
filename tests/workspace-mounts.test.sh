@@ -215,6 +215,39 @@ for bad_target in '/home/dev/.omp/../../../usr/local/bin' '/home/dev//.omp' '/ho
 done
 [ ! -e "$root/clean.yaml" ] &&
 	ok "rejected unnormalized targets wrote no file" || bad "a rejected unnormalized target wrote a file"
+# The loader drops a trailing '/', so the comparison must too: left in place,
+# /usr/local/ would not be seen as the ancestor of /usr/local/bin, nor /home/dev/
+# as the ancestor of the mise toolchain, and /home/dev/.one/ would not be seen
+# repeating /home/dev/.one.
+for bad_target in '/usr/local/' '/usr/local//' '/home/dev/' '/opt/hestia/omp/'; do
+	if "$gen" --state "x:$bad_target" --out "$root/slash.yaml" "$repo" >/dev/null 2>&1; then
+		bad "trailing-slash target over a reserved path accepted: $bad_target"
+	else
+		ok "trailing-slash target over a reserved path rejected: $bad_target"
+	fi
+done
+if "$gen" --state a:/home/dev/.one --state b:/home/dev/.one/ --out "$root/slash.yaml" "$repo" >/dev/null 2>&1; then
+	bad "trailing-slash spelling of a repeated target rejected"
+else
+	ok "trailing-slash spelling of a repeated target rejected"
+fi
+[ ! -e "$root/slash.yaml" ] &&
+	ok "rejected trailing-slash targets wrote no file" || bad "a rejected trailing-slash target wrote a file"
+if "$gen" --state "slash:/home/dev/.slash/" --out "$root/slash-ok.yaml" "$repo" >/dev/null 2>"$root/slash-ok.err" &&
+	grep -qx "        target: '/home/dev/.slash'" "$root/slash-ok.yaml"; then
+	ok "a trailing slash on a free target is accepted and emitted without it"
+else
+	bad "trailing slash on a free target: $(cat "$root/slash-ok.err")"
+fi
+# Targets are checked before the identity helper creates the state directory and
+# its record, so a refused target leaves a fresh state root untouched.
+if HESTIA_STATE_ROOT="$root/fresh-state" "$gen" --state "x:/usr/local/bin" --out "$root/fresh.yaml" "$repo" >/dev/null 2>&1; then
+	bad "reserved target on a fresh state root rejected"
+else
+	ok "reserved target on a fresh state root rejected"
+fi
+[ ! -e "$root/fresh-state" ] && [ ! -e "$root/fresh.yaml" ] &&
+	ok "rejected target on a fresh state root wrote nothing" || bad "a rejected target on a fresh state root wrote state or a file"
 
 echo "== host/container agreement (through the generated compose file) =="
 status_host="$(git -C "$repo" status --porcelain=v2)"

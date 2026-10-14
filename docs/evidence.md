@@ -618,3 +618,34 @@ fixture-snapshot 7/7, mounts 62/62 (five new checks: four refused spellings and
 the no-file assertion), lifecycle 33/33, cache-clear 12/12, agent 30/30,
 litellm 34/34, aws 9/9, concurrency 21/21 — 230 checks. As above, litellm's real
 endpoint acceptance and aws authenticated inference are not run here.
+
+## Second follow-up: PR #30 review findings — 2026-10-14
+
+Host: Linux x86_64 cloud container, bash 5.2.21, no Docker daemon. Findings from
+PR #30's reviewers (Codex, CodeRabbit, momus).
+
+- **Trailing slash slipped past the ancestor check (Codex, CodeRabbit).** Real:
+  `--state x:/usr/local/` exited 0 and emitted the bind, because the ancestor
+  pattern became `/usr/local//*`, which does not match `/usr/local/bin`; the
+  loader then mounts it at `/usr/local`. Same for `/home/dev/` over the mise
+  toolchain. `state_target` now drops trailing slashes (the root keeps its
+  own), so the comparison and the emitted file both use the cleaned path.
+  Measured: `/usr/local/`, `/usr/local//`, `/home/dev/`, `/opt/hestia/omp/` and
+  a `/home/dev/.one` + `/home/dev/.one/` pair refused; `/home/dev/.slash/`
+  accepted and emitted as `target: '/home/dev/.slash'`. The default
+  invocation's output is byte-identical to before.
+- **"Refused before anything is written" was not true (Codex).** On a fresh
+  `HESTIA_STATE_ROOT`, the identity helper ran before target validation and
+  left the state directory and `identity.record` behind (reproduced: a refused
+  `x:/usr/local/bin` left `<root>/<id>/identity.record`). The identity check now
+  runs after every target is accepted; measured, the same refusal leaves the
+  fresh root absent.
+- **Untested boundary (momus).** The mounts suite gains nine checks for the two
+  cases above: four trailing-slash reserved targets, the trailing-slash
+  duplicate, no file written, a free trailing-slash target accepted and emitted
+  clean, and a refusal on a fresh state root writing neither state nor file.
+
+Verification on this host: identity 22/22 and fixture-snapshot 7/7, exit 0. The
+mounts suite skips without Docker, so its nine new checks were run in isolation
+against the generator and a scratch repository: 9/9. The full mounts suite and
+the other Docker-backed suites were not run here.
