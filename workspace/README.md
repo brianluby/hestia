@@ -230,7 +230,8 @@ enables Landlock is not yet observed. Its audit logs, sessions and rollback
 snapshots live in `~/.local/state/nono`; to keep them across recreation, add
 `--state nono:/home/dev/.local/state/nono` (and repeat `--state omp`, since
 any `--state` replaces the omp default). Rollback snapshots are local undo,
-not backup.
+not backup. [nono best practices](../docs/nono.md) covers profiles, the paths
+and variables a workspace needs, and an example omp profile.
 
 Real AWS/Bedrock credential-chain authentication remains unverified. The
 [LiteLLM fixture proof](../docs/m1-apple-silicon-evidence-v2.md) verifies real

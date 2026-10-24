@@ -34,6 +34,7 @@ Identity and worktree mount planning are part of the foundation; full concurrent
 - [Workspace identity](identity/README.md): bounded checkout-derived identity helper (M1-04).
 - [Workspace mounts](workspace/README.md): scoped Compose generator for host checkouts and worktree metadata (M1-02/M1-05).
 - [Evidence log](docs/evidence.md): observed platforms, versions, commands and results per requirement.
+- [nono best practices](docs/nono.md): configuring the optional nono sandbox CLI inside a workspace.
 - [Architecture](docs/architecture.md): accepted design defaults, trade-offs, and remaining implementation choices.
 - [Roadmap](docs/roadmap.md): short, acceptance-driven implementation sequence.
 - [Contributor instructions](AGENTS.md): scope, evidence, verification, and safety expectations.
