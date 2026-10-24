@@ -214,6 +214,12 @@ RUN curl -sfL -o /tmp/nono.tar.gz \
  && rm -rf /tmp/nono /tmp/nono.tar.gz /tmp/cosign /tmp/nono-provenance.json /tmp/nono-provenance.jsonl \
  && nono --version | grep -qxF "nono ${NONO_VERSION#v}" \
  && install -d -o dev -g dev /home/dev/.local/state /home/dev/.local/state/nono
+# Hestia's nono profiles (agent/nono, docs/nono.md): hestia-base plus one per
+# agent, which extend it by name (nono resolves a sibling file first, so a
+# user profile cannot shadow the base). Root-owned like the omp policy: the
+# runtime user, and an agent under them, can read but not edit its own
+# policy. Inert until `nono run --profile /opt/hestia/nono/<name>.json`.
+COPY agent/nono/ /opt/hestia/nono/
 # Back to the runtime user, as in the pig stage: root-owned in /usr/local/bin,
 # executable by dev but not replaceable by it.
 USER dev
@@ -256,7 +262,8 @@ RUN curl -sfL -o /tmp/pig.tar.gz \
  && tar -xzf /tmp/pig.tar.gz -C /tmp \
  && install -m 0755 "/tmp/pig-${PIG_VERSION#v}-linux-arm64/pig" /usr/local/bin/pig \
  && rm -rf /tmp/pig.tar.gz "/tmp/pig-${PIG_VERSION#v}-linux-arm64" \
- && pig --version | grep -qF "${PIG_VERSION#v}+"
+ && pig --version | grep -qF "${PIG_VERSION#v}+" \
+ && install -d -o dev -g dev /home/dev/.pig
 # Back to the runtime user: the image's default user must stay dev, and a
 # root-owned /usr/local/bin binary is executable by it but not replaceable.
 USER dev
@@ -339,7 +346,9 @@ USER dev
 # DISABLE_AUTOUPDATER=1: the binary is root-owned and pinned, so updates are
 # rebuilds. CLAUDE_CONFIG_DIR puts all state in one directory: without it
 # Claude Code also writes ~/.claude.json beside ~/.claude (observed), which a
-# `--state claude` bind would miss. Network traffic beyond the model API
+# `--state claude` bind would miss. ~/.claude.lock, its OAuth-refresh lock
+# directory, is created too: nono grants only paths that exist at start.
+# Network traffic beyond the model API
 # (telemetry, error reporting, remote settings) is left at Claude Code's
 # defaults; CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 turns it off at runtime.
 FROM nono AS claude-code
@@ -358,7 +367,7 @@ RUN curl -sfL -o /tmp/claude-code.tgz \
  && install -m 0755 /tmp/package/claude /usr/local/bin/claude \
  && rm -rf /tmp/claude-code.tgz /tmp/package \
  && claude --version | grep -qxF "${CLAUDE_CODE_VERSION} (Claude Code)" \
- && install -d -o dev -g dev /home/dev/.claude
+ && install -d -o dev -g dev /home/dev/.claude /home/dev/.claude.lock
 USER dev
 
 # XJVWF4K — optional agent layer: omp (oh-my-pi, TG7VZBV decision; AWS Bedrock

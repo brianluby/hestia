@@ -1,0 +1,14 @@
+{
+  "extends": "mise-dev",
+  "meta": {
+    "name": "hestia-base",
+    "description": "Hestia workspace baseline for the agent profiles beside it; not for direct use (no network allowlist)"
+  },
+  "groups": { "include": ["git_config", "linux_temp_read"] },
+  "workdir": { "access": "readwrite" },
+  "filesystem": {
+    "allow": ["/hestia/cache"],
+    "read": ["$XDG_STATE_HOME/mise"]
+  },
+  "network": { "network_profile": null }
+}

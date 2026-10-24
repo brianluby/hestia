@@ -770,3 +770,39 @@ Same cloud host (Linux x86_64, no Docker daemon). Three sibling stages on
   mounts suite skips without Docker.
 - **Not run:** any arm64 build, any agent inside a container, authentication,
   assisted work, and session persistence across recreation.
+
+## Hestia nono profiles — 2026-10-24 (not built)
+
+Same cloud host (Linux x86_64, kernel 6.18.44), nono v0.80.0 x86_64. The
+image layout was recreated on this disposable host: `agent/nono/*.json` in
+`/opt/hestia/nono`, the x64 Pi and Pi-Bolt trees in `/opt/hestia/pi{,-bolt}`,
+omp's policy in `/opt/hestia/omp`, `/hestia/cache`, and a dev-like home with
+each agent's state directory and a decoy `~/.ssh` key. Not a Hestia
+container; no arm64.
+
+- **Validation.** `nono profile validate`: all five profiles valid; agent
+  profiles resolve `extends: "hestia-base"` from the sibling file.
+- **Policy matrix.** 73 `nono why` expectations (paths and hosts per profile,
+  listed in [nono best practices](nono.md#shipped-profiles)) passed after one
+  fix: `~/.claude.lock` was reported DENIED until it existed, because nono
+  skips grants for missing paths. The image now creates it, and `~/.pig`.
+- **Real runs.** Pi and Pi-Bolt `--list-models` (`PI_OFFLINE=1`) and
+  `claude --version` exited 0 under their profiles. A Go 1.24 module built
+  and tested under `hestia-pi` (`GOCACHE` in `/hestia/cache`). Claude Code
+  first failed with "Temp directory … is not readable": the base policy
+  grants `/tmp` write-only; adding the `linux_temp_read` group fixed it.
+- **Proxy.** Chained to this host's outbound proxy with `--upstream-proxy`:
+  under `hestia-claude`, `curl https://api.anthropic.com/v1/models` returned
+  401 (reached, unauthenticated); under `hestia-pi`, `github.com` was refused
+  by nono's allowlist, and `pi.dev` was allowed by nono but refused by this
+  session's own network policy, so Pi's catalog refresh is untested. With a
+  clean environment, `claude doctor` under `hestia-claude` exited 0, wrote
+  only inside `~/.claude`, and reported no credentials and auto-updates
+  disabled by `DISABLE_AUTOUPDATER`.
+- **Test contamination, disclosed.** Two unsandboxed `claude -p 'say hi'`
+  comparison runs answered, because this hosted session supplies Anthropic
+  API access at the network level. They are not evidence of anything about
+  Hestia and are excluded; no further prompts were sent.
+- **Not run:** omp and PiG binaries under nono, any authenticated agent
+  session or assisted change, provider traffic beyond the one `curl`, and
+  anything on arm64 or in a container.

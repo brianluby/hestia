@@ -2,12 +2,13 @@
 
 [Workspace reference](../workspace/README.md#agent-layers) · [Architecture](architecture.md) · [Evidence log](evidence.md)
 
-**Status:** guidance for the pinned nono v0.80.0 in the `agent` and `pig`
-images. No image containing nono has been built, and nothing here has run
-inside a Hestia container. Statements marked *observed* were run with the
-same release's x86_64 binary on a Linux 6.18 cloud host (2026-10-24); the
-rest cite upstream's v0.80.0 sources, linked at the end. Treat the example
-profile as a starting point to verify, not an accepted configuration.
+**Status:** guidance for the pinned nono v0.80.0 in every agent image, and
+the [profiles the images ship](#shipped-profiles). No image containing nono
+has been built, and nothing here has run inside a Hestia container.
+Statements marked *observed* were run with the same release's x86_64 binary
+on a Linux 6.18 cloud host (2026-10-24); the rest cite upstream's v0.80.0
+sources, linked at the end. The shipped profiles are tested starting points,
+not accepted configurations: no agent has done assisted work under them.
 
 ## What nono adds here
 
@@ -29,7 +30,7 @@ can read a sibling agent's state.
 | SLSA provenance required from `release.yml` only, not the whole `workflows/` prefix | Keep. `attest-release.yml` re-attests downloaded assets and proves nothing about the build. First real verification is the Mac build. |
 | `NONO_NO_UPDATE_CHECK=1` | Keep. The binary is pinned; the check would contact `update.nono.sh` daily with an install UUID. |
 | `~/.local/state/nono` created dev-owned | Keep. Audit logs, sessions and rollbacks live there and are lost on recreation unless bound with `--state` (below). |
-| No nono profile shipped; omp and pig start unsandboxed by default | Gap. nono does nothing until invoked with a profile. The built-in profiles (`default`, `mise-dev`, `go-dev`, …) cover none of omp, pig or Hestia's paths (*observed*: `nono profile list`). |
+| Hestia profiles shipped root-owned in `/opt/hestia/nono`; agents still start unsandboxed by default | The built-in profiles (`default`, `mise-dev`, `go-dev`, …) cover no agent or Hestia path (*observed*: `nono profile list`), so Hestia ships its own ([below](#shipped-profiles)). Starting agents under nono by default is an open choice. |
 
 ## Practices
 
@@ -80,6 +81,13 @@ can read a sibling agent's state.
    enforceable on Linux"). If a file inside the checkout must stay hidden,
    it does not belong in an agent-writable checkout.
 
+   Two more Linux details (*observed*): a grant for a path that does
+   not exist when nono starts is silently skipped (Landlock rules attach to
+   existing inodes), so create agent directories in the image; and the base
+   policy grants `/tmp` **write-only**, which broke Claude Code ("Temp
+   directory … is not readable") until the `linux_temp_read` group was
+   added. Go builds use `/tmp` the same way.
+
 6. **List network hosts; do not trust presets for Bedrock.** Any
    `allow_domain` or `network_profile` puts the command behind nono's proxy:
    only listed hosts pass, cloud metadata and link-local addresses are always
@@ -118,8 +126,9 @@ can read a sibling agent's state.
    works and can extend a built-in (*observed*). Never grant write to
    `~/.config/nono` or an ancestor: it holds profiles, `config.toml` and
    installed packages, and is not a protected root ([guide][guide],
-   Profile Drafts). The omp-overlay pattern, a root-owned copy under
-   `/opt/hestia`, would fit; it is not implemented.
+   Profile Drafts). Hestia follows the omp-overlay pattern: the shipped
+   profiles are a root-owned copy under `/opt/hestia/nono`, which no profile
+   grants write to.
 
 10. **Review a profile before running it.** `nono profile validate <file>`,
     `nono profile show <name>`, `nono why --profile <file> --path <p> --op
@@ -144,48 +153,65 @@ can read a sibling agent's state.
     ([supervisor][sup]). Each approval expands authority; prefer editing the
     reviewed profile.
 
-## Example: omp on Bedrock
+## Shipped profiles
 
-A starting point for the `agent` image, Bedrock in `us-west-2`:
+The [`agent/nono`](../agent/nono) files are copied root-owned to
+`/opt/hestia/nono` in every agent image. `hestia-base` holds the workspace
+paths (practice 4) and is not for direct use: it clears the network preset
+and lists no hosts, so on its own it would leave egress unfiltered. Each
+agent profile extends it by name; nono resolves the sibling file first.
 
-```json
-{
-  "extends": "mise-dev",
-  "meta": {
-    "name": "hestia-omp",
-    "description": "omp in a Hestia workspace: checkout, omp state, caches; Bedrock only"
-  },
-  "groups": { "include": ["git_config"] },
-  "workdir": { "access": "readwrite" },
-  "filesystem": {
-    "allow": ["$HOME/.omp", "/hestia/cache"],
-    "read": ["/opt/hestia/omp", "$XDG_STATE_HOME/mise"]
-  },
-  "network": {
-    "network_profile": null,
-    "allow_domain": ["bedrock-runtime.us-west-2.amazonaws.com"]
-  }
-}
-```
+| Profile | For | Own state (read+write) | Read only | Hosts |
+| --- | --- | --- | --- | --- |
+| `hestia-omp` | omp (`agent`) | `~/.omp` | `/opt/hestia/omp` | `bedrock-runtime.*.amazonaws.com` (one label: any region) |
+| `hestia-pig` | PiG (`pig`) | `~/.pig` | — | nono's `minimal` preset (LLM APIs) |
+| `hestia-pi` | Pi and Pi-Bolt | `~/.pi` | `/opt/hestia/pi`, `/opt/hestia/pi-bolt` | `minimal` preset plus `pi.dev` (model catalog) |
+| `hestia-claude` | Claude Code | `~/.claude`, `~/.claude.lock` | — | `api.anthropic.com`, `claude.ai`, `platform.claude.com`, `console.anthropic.com` |
+
+Every profile also gets the checkout (with `--allow-cwd`), `/hestia/cache`,
+readable `/tmp`, Git config and read-only mise trust state, and denies
+credentials, other agents' state and nono's own state. `hestia-claude` sets
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`, since telemetry hosts are not
+allowed anyway. Run an agent under its profile from the checkout:
 
 ```sh
-nono run --allow-cwd --profile hestia-omp.json -- omp
+nono run --allow-cwd --profile /opt/hestia/nono/hestia-claude.json -- claude
+nono run --allow-cwd --profile /opt/hestia/nono/hestia-omp.json -- omp
 ```
 
-*Observed* with a scratch home (not a Hestia container): `profile validate`
-→ valid. A real run wrote the checkout and `~/.omp`, could not read
-`~/.ssh`, kept `PI_CONFIG_FILES`, and set `HTTPS_PROXY`. `why` allowed
-`/hestia/cache` write, `/opt/hestia/omp` read and the Bedrock host; it denied
-`/opt/hestia/omp` write, mise trust-state write, `~/.local/state/nono`,
-`api.anthropic.com` and `github.com`. **Not run:** omp itself, real Bedrock
-traffic through the proxy (AWS SigV4 through nono's proxy is untested), and
-any arm64 or in-container behavior.
+Add `--allow "$(git rev-parse --path-format=absolute --git-common-dir)"` in a
+linked worktree, and `--allow-domain <host>` for anything else an agent
+needs: a LiteLLM endpoint for omp, or another provider for Pi.
+
+*Observed* on the cloud host with the image's layout recreated (profiles in
+`/opt/hestia/nono`, Pi and Pi-Bolt trees in `/opt/hestia`, a dev-like home):
+
+- All five profiles validate. A `nono why` matrix of 73 expectations passed:
+  each profile denies `~/.ssh`, nono's state, policy and profile writes,
+  mise trust writes, `github.com` and the metadata address, and allows its
+  own state, `/hestia/cache` and `/usr/local/bin`; no profile reaches
+  another agent's state; omp's wildcard allows two regions' Bedrock hosts
+  and denies the regionless host, two-label spellings, S3 and Anthropic;
+  Claude's denies OpenAI, `statsig.anthropic.com` and `pi.dev`.
+- Real runs, offline: Pi and Pi-Bolt `--list-models` and `claude --version`
+  exit 0; a Go module builds and tests under `hestia-pi`.
+- Through nono's proxy: `curl` to `api.anthropic.com` under `hestia-claude`
+  reached the API (HTTP 401, no credentials); `github.com` was refused by
+  nono. Under a clean environment, `claude doctor` ran, wrote only inside
+  `~/.claude`, and reported no credentials and auto-updates disabled.
+- Fixed during testing: `~/.claude.lock` must exist (now created in the
+  image, with `~/.pig`), and `/tmp` needed `linux_temp_read`.
+
+**Not run:** omp and PiG under nono (only `why` checks), any authenticated
+agent session or assisted change, provider traffic other than the one
+`curl`, and anything on arm64 or in a container.
 
 ## Open choices
 
-- Whether to ship a reviewed profile root-owned in the image (practice 9),
-  and whether omp/pig should start under it by default.
-- A PiG variant (`~/.pig`, its provider hosts), and a LiteLLM variant.
+- Whether agents should start under their profile by default, rather than
+  by an explicit `nono run`.
+- Per-provider host lists for Pi and PiG beyond nono's `minimal` preset, and
+  a LiteLLM variant of `hestia-omp`.
 - Whether nono's state should be a default `--state` in generated workspaces.
 
 ## Sources

@@ -1,0 +1,15 @@
+{
+  "extends": "hestia-base",
+  "meta": {
+    "name": "hestia-pi",
+    "description": "Pi or Pi-Bolt in a Hestia workspace: ~/.pi, the install trees, nono's LLM API hosts, Pi's model catalog"
+  },
+  "filesystem": {
+    "allow": ["$HOME/.pi"],
+    "read": ["/opt/hestia/pi", "/opt/hestia/pi-bolt"]
+  },
+  "network": {
+    "network_profile": "minimal",
+    "allow_domain": ["pi.dev"]
+  }
+}
