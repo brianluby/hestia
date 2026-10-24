@@ -649,3 +649,53 @@ Verification on this host: identity 22/22 and fixture-snapshot 7/7, exit 0. The
 mounts suite skips without Docker, so its nine new checks were run in isolation
 against the generator and a scratch repository: 9/9. The full mounts suite and
 the other Docker-backed suites were not run here.
+
+## nono sandbox CLI layer — 2026-10-24 (implementation slice, not built)
+
+nono ([github.com/nolabs-ai/nono](https://github.com/nolabs-ai/nono),
+Apache-2.0) is added as a shared `nono` stage between `fixture-tools` and both
+agent stages. Everything below was observed in a Linux x86_64 cloud session
+(kernel 6.18.44, no Docker daemon), **not** on the Apple Silicon host: no
+image containing this stage has been built, and nothing here is arm64 runtime
+evidence.
+
+- **Pin.** Release `v0.80.0` (tag commit `8bb041356d48`, binary dated
+  2026-10-13), asset `nono-v0.80.0-aarch64-unknown-linux-gnu.tar.gz`, sha256
+  `d2a24c8c37714f85c829b5586ffd81fc2acf336c95372d881ba62140884f22cb`. The
+  downloaded tarball reproduced that digest and upstream's `SHA256SUMS.txt`
+  lists the same value. It contains one file, `nono` (27,067,552 bytes, ELF
+  aarch64), whose dynamic needs (`libc`, `libm`, `libgcc_s`, `libpthread`,
+  `libdl`, `libutil`; symbols up to `GLIBC_2.18`) are all in bookworm-slim.
+- **Provenance — not yet verified.** Upstream's `release.yml` builds the
+  artifacts and attests them with `actions/attest` v4.2.2; a separate,
+  manually run `attest-release.yml` can re-attest downloaded release assets. The
+  build therefore accepts only a SLSA v1 bundle whose certificate names
+  `release.yml`. This session could reach neither the GitHub attestations API
+  nor Rekor (403 from the session's network policy), so neither the bundle
+  count nor the certificate identity has been observed. The first
+  `--target nono` build on the Mac is the first real verification; it fails
+  closed if no bundle verifies.
+- **Loop logic.** The bundle-trying loop was run with a stub verifier: a
+  second-of-two good bundle, a single bundle without a trailing newline (after
+  a fix to the loop's `read`), no good bundle, and an empty list behaved as
+  accept, accept, reject, reject. Every `RUN` step parses under `sh -n` after
+  Docker-style line joining.
+- **Container syscall policy.** moby `docker-v29.5.2`'s default seccomp profile
+  (`vendor/github.com/moby/profiles/seccomp/default.json`) allows
+  `landlock_create_ruleset`, `landlock_add_rule`, `landlock_restrict_self`,
+  `seccomp` and `close_range` unconditionally, and `clone` without namespace
+  flags. Whether the macOS runtime's VM kernel enables Landlock is unobserved.
+- **Behavior (x86_64 binary, same release, digest checked against
+  `SHA256SUMS.txt`).** `nono setup --check-only` reported built-in profiles and
+  `Installation verified!`. `nono run --allow <dir>` read and wrote inside
+  `<dir>` and got `Permission denied` reading a file elsewhere in `$HOME`.
+  Upstream source fails closed when Landlock reports `NotEnforced` and
+  continues on `PartiallyEnforced`. With `NONO_NO_UPDATE_CHECK=1`,
+  `nono --version` created nothing under `$HOME`; without it, an earlier run had
+  written `~/.local/state/nono/update-check.json`.
+- **Workspace state.** `workspace-compose.sh --state omp --state
+  nono:/home/dev/.local/state/nono` exited 0 and emitted both binds; no
+  generator change was needed.
+- **Not run:** any image build, `nono` inside a Hestia container on any
+  platform, an agent started under nono, and nono rollback/audit behavior
+  across recreation.

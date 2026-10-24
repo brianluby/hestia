@@ -392,6 +392,30 @@ authentication, an assisted change and session persistence exactly like step 9,
 and record "not run" for anything not exercised: the image build proves no
 authentication and no session behavior.
 
+## 9c. Sandbox CLI: nono (optional, unverified)
+
+The `agent` and `pig` images both carry nono; nothing above changes. Its build
+step verifies the release digest and its SLSA provenance and fails the build if
+either check fails, so a successful `agent` build from step 9 is the first
+result to record. Then, in an attached shell:
+
+```sh
+nono --version                 # expect: nono 0.80.0
+nono setup --check-only        # does this VM kernel enforce Landlock?
+echo inside > "$PWD/nono-probe.txt"
+nono run --allow "$PWD" -- sh -c 'cat "$PWD/nono-probe.txt"; cat ~/.bashrc'
+rm "$PWD/nono-probe.txt"
+```
+
+**Expect:** `--check-only` reports Landlock support and ends with
+`Installation verified!`. The probe prints `inside`, then `cat ~/.bashrc` fails
+with `Permission denied`, because the home directory is not allowed. If nono
+reports no Landlock support, record that with the kernel version (`uname -r`):
+nono will not run commands on that runtime, and that is the expected
+fail-closed result, not a Hestia bug. Running an agent under nono needs a profile
+that also allows its state and network; record that as not run unless one was
+written and exercised.
+
 ## 10. Record results and stop safely
 
 Record a row for each requirement below, using **pass**, **fail**, **partial** or
