@@ -3,8 +3,9 @@
 # Canonical Hestia image/build path: one Dockerfile, named stages.
 #   docker build --target base .            minimal OS utilities + mise (61Q7E8F)
 #   docker build --target fixture-tools .   base + fixture mise toolchain (WGHQ2GW)
-#   docker build --target pig .             fixture-tools + the PiG harness (V5VWGS9)
-#   docker build --target agent .           fixture-tools + the omp agent (XJVWF4K)
+#   docker build --target nono .            fixture-tools + the nono sandbox CLI
+#   docker build --target pig .             nono + the PiG harness (V5VWGS9)
+#   docker build --target agent .           nono + the omp agent (XJVWF4K)
 # `docker build .` builds the last stage (agent).
 #
 # Pinned inputs (verified 2026-09-09; evidence in docs/evidence.md):
@@ -29,12 +30,19 @@
 # base and those downloads disagree again. By construction the images contain
 # no GUI, no agent supervisor, no host sockets and no credentials. Startup
 # installs nothing; toolchains are declared image layers built explicitly.
+#
+# cosign is pinned once here, before the first FROM, because two stages (base
+# for mise, nono for nono) verify provenance with it; each stage re-declares
+# the names to read this one pin.
+ARG COSIGN_VERSION=v3.1.3
+ARG COSIGN_SHA256=c5d324e091826b0d7a78eb16fef316450b4eb9aaec045611c08ba06f5e73220a
+
 FROM --platform=linux/arm64 debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS base
 
 ARG MISE_VERSION=v2026.9.4
 ARG MISE_SHA256=18303fdb59095acf0c50b0d23819b87182516988f9eb2ec016b52f8814916904
-ARG COSIGN_VERSION=v3.1.3
-ARG COSIGN_SHA256=c5d324e091826b0d7a78eb16fef316450b4eb9aaec045611c08ba06f5e73220a
+ARG COSIGN_VERSION
+ARG COSIGN_SHA256
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
@@ -134,6 +142,79 @@ RUN mise install --yes \
  && cd / \
  && rm -rf /tmp/fixture-src /tmp/hestia-build-cache
 
+# nono — kernel-enforced sandbox CLI (github.com/nolabs-ai/nono), shared by
+# both agent stages below so either harness can be started under it
+# (`nono run --allow <path>... -- <command>`; an agent also needs its own state
+# and network allowed, and no such profile ships). It is a tool, not a wrapper: nothing here
+# changes how omp or pig start, and nono applies no policy until invoked. On
+# Linux it enforces through Landlock (plus seccomp for its network proxy) and
+# refuses to start the command when Landlock is not enforced at all; Docker
+# 29.5.2's default seccomp profile allows the landlock_* syscalls. Whether
+# the macOS runtime's VM kernel (Colima in the recorded runs) enables Landlock
+# is not yet observed: `nono setup --check-only` inside the workspace reports
+# it.
+#
+# Same verification chain as mise: the pinned digest of the release tarball
+# (cross-checked 2026-10-24 against upstream's SHA256SUMS.txt for v0.80.0)
+# must carry a SLSA v1 provenance signed by nono's release.yml workflow, the
+# one that builds the artifacts. The identity is pinned to that file rather
+# than the whole workflows/ prefix because upstream's attest-release.yml can
+# re-attest already-published downloads, which says nothing about how they
+# were built. The attestations API may return several bundles for one digest,
+# so each is tried and one from release.yml must verify. cosign is fetched
+# again here and removed in the same layer, as in base.
+#
+# NONO_NO_UPDATE_CHECK=1 turns off nono's daily update.nono.sh request (it
+# sends an anonymous install UUID): this binary is pinned, and updating it is
+# an explicit rebuild, not a runtime prompt. nono's durable state (audit
+# logs, sessions, rollback snapshots) lives under ~/.local/state/nono and is
+# disposable container storage unless a workspace binds it with
+# `--state nono:/home/dev/.local/state/nono`. That directory is created
+# dev-owned here, as ~/.omp is below, so a bind there does not leave Docker to
+# create its parents root-owned.
+FROM fixture-tools AS nono
+
+ARG NONO_VERSION=v0.80.0
+ARG NONO_SHA256=d2a24c8c37714f85c829b5586ffd81fc2acf336c95372d881ba62140884f22cb
+ARG COSIGN_VERSION
+ARG COSIGN_SHA256
+
+ENV NONO_NO_UPDATE_CHECK=1
+
+USER root
+RUN curl -sfL -o /tmp/nono.tar.gz \
+      "https://github.com/nolabs-ai/nono/releases/download/${NONO_VERSION}/nono-${NONO_VERSION}-aarch64-unknown-linux-gnu.tar.gz" \
+ && curl -sfL -o /tmp/cosign \
+      "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-arm64" \
+ && echo "${NONO_SHA256}  /tmp/nono.tar.gz" | sha256sum --strict --check - \
+ && echo "${COSIGN_SHA256}  /tmp/cosign" | sha256sum --strict --check - \
+ && chmod +x /tmp/cosign \
+ && curl -sfL "https://api.github.com/repos/nolabs-ai/nono/attestations/sha256:${NONO_SHA256}" \
+      | jq -c '.attestations[].bundle | (if type == "string" then fromjson else . end) \
+          | select((.dsseEnvelope.payload | @base64d | fromjson | .predicateType) == "https://slsa.dev/provenance/v1")' \
+          > /tmp/nono-provenance.jsonl \
+ && test -s /tmp/nono-provenance.jsonl \
+ && verified=no \
+ && while IFS= read -r bundle || [ -n "$bundle" ]; do \
+      printf '%s\n' "$bundle" > /tmp/nono-provenance.json; \
+      if /tmp/cosign verify-blob-attestation \
+           --bundle /tmp/nono-provenance.json \
+           --type "https://slsa.dev/provenance/v1" \
+           --certificate-identity-regexp '^https://github\.com/nolabs-ai/nono/\.github/workflows/release\.yml@' \
+           --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+           /tmp/nono.tar.gz; then verified=yes; break; fi; \
+    done < /tmp/nono-provenance.jsonl \
+ && test "$verified" = yes \
+ && mkdir /tmp/nono \
+ && tar -xzf /tmp/nono.tar.gz -C /tmp/nono \
+ && install -m 0755 /tmp/nono/nono /usr/local/bin/nono \
+ && rm -rf /tmp/nono /tmp/nono.tar.gz /tmp/cosign /tmp/nono-provenance.json /tmp/nono-provenance.jsonl \
+ && nono --version | grep -qxF "nono ${NONO_VERSION#v}" \
+ && install -d -o dev -g dev /home/dev/.local/state /home/dev/.local/state/nono
+# Back to the runtime user, as in the pig stage: root-owned in /usr/local/bin,
+# executable by dev but not replaceable by it.
+USER dev
+
 # V5VWGS9 — alternative harness layer: PiG ("Pi in Go", github.com/MichaelKinsy/PiG), a
 # Go port of the Pi terminal coding agent — one native binary, no Node.js. A
 # separate stage rather than a switch, so a workspace chooses its harness by
@@ -160,7 +241,7 @@ RUN mise install --yes \
 # exactly what this container boundary is for. Durable state is PiG's config
 # root ~/.pig (or PIG_HOME, agent directory PIG_CODING_AGENT_DIR), which the
 # generated Compose file binds with `--state pig` — never baked.
-FROM fixture-tools AS pig
+FROM nono AS pig
 
 ARG PIG_VERSION=v0.4.1
 ARG PIG_SHA256=e1768bbfce29b784d76001eb47ebd989f05ed042fbe81ad8629816e181fa5ac8
@@ -195,7 +276,7 @@ USER dev
 # omp's durable state (~/.omp: sessions, resumable via --resume, settings,
 # project-scoped memory) is bind-mounted from the workspace's state directory
 # by the generated Compose file, never baked.
-FROM fixture-tools AS agent
+FROM nono AS agent
 
 ARG OMP_VERSION=v18.1.16
 ARG OMP_SHA256=d8612389c7af3cf3b69609c9149bff3cf07dcb65774b231d9dc4966b176b9720

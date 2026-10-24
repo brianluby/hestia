@@ -213,6 +213,25 @@ omp default. PiG is pre-1.0 (`0.4.1+1.0.3` when this was written) and its
 authentication, assisted work and session persistence are unverified here;
 only the image build and the offline binary were exercised.
 
+**nono** ([nolabs-ai/nono](https://github.com/nolabs-ai/nono)) is in both
+agent images, from the shared `nono` stage: a kernel-enforced sandbox CLI
+at `/usr/local/bin/nono`, pinned to v0.80.0 and verified by digest plus SLSA
+provenance from upstream's release workflow. It is inert until invoked — omp
+and pig start exactly as before — and adds a second, path-level boundary
+inside the container: `nono run --allow "$PWD" -- <command>` lets the
+command reach only the checkout plus nono's system defaults. A real agent
+also needs its own state and network allowed (for omp, at least `~/.omp`);
+no profile for omp or pig ships here and none is verified. Registry
+profiles (`nono pull`) download at the moment you run that command, and the
+pinned binary's update check is off (`NONO_NO_UPDATE_CHECK=1`). Run
+`nono setup --check-only` first: nono refuses to start a command when the
+kernel enforces no Landlock rules, and whether the macOS runtime's VM kernel
+enables Landlock is not yet observed. Its audit logs, sessions and rollback
+snapshots live in `~/.local/state/nono`; to keep them across recreation, add
+`--state nono:/home/dev/.local/state/nono` (and repeat `--state omp`, since
+any `--state` replaces the omp default). Rollback snapshots are local undo,
+not backup.
+
 Real AWS/Bedrock credential-chain authentication remains unverified. The
 [LiteLLM fixture proof](../docs/m1-apple-silicon-evidence-v2.md) verifies real
 assisted work and native saved-session resume. Without AWS credentials, omp reports missing auth
