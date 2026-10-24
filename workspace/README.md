@@ -236,15 +236,17 @@ other non-model traffic stays at its defaults;
 install steps have run (on x86_64, with each release's x64 assets): no arm64
 image has been built and no authentication or assisted work is verified.
 
-**nono** ([nolabs-ai/nono](https://github.com/nolabs-ai/nono)) is in both
-agent images, from the shared `nono` stage: a kernel-enforced sandbox CLI
+**nono** ([nolabs-ai/nono](https://github.com/nolabs-ai/nono)) is in every
+agent image, from the shared `nono` stage: a kernel-enforced sandbox CLI
 at `/usr/local/bin/nono`, pinned to v0.80.0 and verified by digest plus SLSA
-provenance from upstream's release workflow. It is inert until invoked — omp
-and pig start exactly as before — and adds a second, path-level boundary
-inside the container: `nono run --allow "$PWD" -- <command>` lets the
-command reach only the checkout plus nono's system defaults. A real agent
-also needs its own state and network allowed (for omp, at least `~/.omp`);
-no profile for omp or pig ships here and none is verified. Registry
+provenance from upstream's release workflow. It is inert until invoked —
+every agent starts exactly as before — and adds a second, path-level boundary
+inside the container. Each image carries Hestia's profiles, root-owned in
+`/opt/hestia/nono` (`hestia-omp`, `hestia-pig`, `hestia-pi`, `hestia-claude`):
+`nono run --allow-cwd --profile /opt/hestia/nono/hestia-claude.json -- claude`
+gives the agent the checkout, its own state, the caches and its provider
+hosts, and nothing else. They are tested starting points, not verified
+agent sessions. Registry
 profiles (`nono pull`) download at the moment you run that command, and the
 pinned binary's update check is off (`NONO_NO_UPDATE_CHECK=1`). Run
 `nono setup --check-only` first: nono refuses to start a command when the

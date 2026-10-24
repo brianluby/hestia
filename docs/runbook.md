@@ -436,9 +436,17 @@ rm "$PWD/nono-probe.txt"
 with `Permission denied`, because the home directory is not allowed. If nono
 reports no Landlock support, record that with the kernel version (`uname -r`):
 nono will not run commands on that runtime, and that is the expected
-fail-closed result, not a Hestia bug. Running an agent under nono needs a profile
-that also allows its state and network; record that as not run unless one was
-written and exercised.
+fail-closed result, not a Hestia bug. To run the image's agent under its shipped
+profile, from the checkout (`hestia-omp`, `hestia-pig`, `hestia-pi` or
+`hestia-claude`):
+
+```sh
+nono run --allow-cwd --profile /opt/hestia/nono/hestia-omp.json -- omp
+```
+
+Record whether the agent authenticates, makes an assisted change and builds,
+and any denial nono reports, with the host it names. Each denial is either a
+missing grant to record or an access the profile correctly refused.
 
 ## 10. Record results and stop safely
 

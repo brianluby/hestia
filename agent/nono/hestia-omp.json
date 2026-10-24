@@ -1,0 +1,14 @@
+{
+  "extends": "hestia-base",
+  "meta": {
+    "name": "hestia-omp",
+    "description": "omp in a Hestia workspace: its state, its provider policy, Bedrock runtime in any region"
+  },
+  "filesystem": {
+    "allow": ["$HOME/.omp"],
+    "read": ["/opt/hestia/omp"]
+  },
+  "network": {
+    "allow_domain": ["bedrock-runtime.*.amazonaws.com"]
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "extends": "hestia-base",
+  "meta": {
+    "name": "hestia-pig",
+    "description": "PiG in a Hestia workspace: its state, nono's LLM API hosts"
+  },
+  "filesystem": {
+    "allow": ["$HOME/.pig"]
+  },
+  "network": {
+    "network_profile": "minimal"
+  }
+}
