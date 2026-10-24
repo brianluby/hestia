@@ -193,7 +193,7 @@ fi
 # A bind hides what is underneath, so paths the image owns are reserved too:
 # covering the toolchain, the policy or the installed binaries starts a
 # workspace that cannot run its own tools.
-for target in /home/dev /home/dev/.local/share/mise /home/dev/.config /opt/hestia/omp /usr/local/bin; do
+for target in /home/dev /home/dev/.local/share/mise /home/dev/.config /opt/hestia /opt/hestia/omp /opt/hestia/pi /opt/hestia/pi-bolt /usr/local/bin; do
 	if "$gen" --state "x:$target" --out "$root/hide.yaml" "$repo" >/dev/null 2>&1; then
 		bad "--state target over image-owned $target rejected"
 	else

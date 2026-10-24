@@ -5,6 +5,9 @@
 #   docker build --target fixture-tools .   base + fixture mise toolchain (WGHQ2GW)
 #   docker build --target nono .            fixture-tools + the nono sandbox CLI
 #   docker build --target pig .             nono + the PiG harness (V5VWGS9)
+#   docker build --target pi .              nono + upstream Pi (opt-in)
+#   docker build --target pi-bolt .         nono + Pi-Bolt (opt-in, experimental)
+#   docker build --target claude-code .     nono + Claude Code (opt-in)
 #   docker build --target agent .           nono + the omp agent (XJVWF4K)
 # `docker build .` builds the last stage (agent).
 #
@@ -256,6 +259,106 @@ RUN curl -sfL -o /tmp/pig.tar.gz \
  && pig --version | grep -qF "${PIG_VERSION#v}+"
 # Back to the runtime user: the image's default user must stay dev, and a
 # root-owned /usr/local/bin binary is executable by it but not replaceable.
+USER dev
+
+# Opt-in Pi-family and Claude Code layers. Like pig, each is a sibling stage on
+# nono, chosen by image tag; none changes the agent default. Each ships no
+# provider policy (omp's overlay is omp-only), authenticates through its own
+# login or runtime keys, and does not sandbox its tools: the container, and
+# nono when invoked, are the boundary. Install trees are root-owned under
+# /opt/hestia, which the generator reserves from state mounts; binaries are
+# linked into /usr/local/bin. Version checks run before any state exists:
+# with update checks off, `--version` writes nothing under HOME (observed
+# 2026-10-24 on each release's x86_64 build).
+
+# pi — upstream Pi (github.com/earendil-works/pi), the TypeScript agent the
+# omp and PiG layers derive from, as its own release binary (Bun-compiled; no
+# Node.js). The tarball is a directory: the binary finds its themes and assets
+# beside its resolved path, so a symlink works (observed). The pinned digest
+# was cross-checked 2026-10-24 against upstream's SHA256SUMS, which is
+# unsigned and has no attestation: the trust anchor is GitHub's release
+# hosting over TLS, as for pig. PI_SKIP_VERSION_CHECK=1 stops the startup
+# version request; the pinned binary updates by rebuild, not `pi update`.
+# Durable state is ~/.pi (settings, sessions, auth): generate with
+# `--state pi`.
+FROM nono AS pi
+
+ARG PI_VERSION=v1.4.0
+ARG PI_SHA256=fa5829c7ef83ffeaebba015715c8306220f89b2aa8a00154efbba98dd5440156
+
+ENV PI_SKIP_VERSION_CHECK=1
+
+USER root
+RUN curl -sfL -o /tmp/pi.tar.gz \
+      "https://github.com/earendil-works/pi/releases/download/${PI_VERSION}/pi-linux-arm64.tar.gz" \
+ && echo "${PI_SHA256}  /tmp/pi.tar.gz" | sha256sum --strict --check - \
+ && mkdir -p /opt/hestia/pi \
+ && tar -xzf /tmp/pi.tar.gz -C /opt/hestia/pi --strip-components=1 --no-same-owner \
+ && rm /tmp/pi.tar.gz \
+ && ln -s /opt/hestia/pi/pi /usr/local/bin/pi \
+ && pi --version | grep -qxF "${PI_VERSION#v}" \
+ && install -d -o dev -g dev /home/dev/.pi
+USER dev
+
+# pi-bolt — Pi-Bolt (github.com/opensec-git/Pi-Bolt): a fork of Pi v1.4.0
+# compiled ahead of time on a patched Bun/WebKit engine. Young despite its
+# 1.x version (first release 2026-10-02), with a larger trusted base
+# than Pi (an experimental compiler plus ~32k lines of engine patches), so it
+# is an experiment beside pi, not a replacement. The pinned digest was
+# cross-checked 2026-10-24 against the release's SHA256SUMS, whose Ed25519
+# signature verified against the repository's keys/release.pub (the key is
+# hosted with the code, so this binds the files to the project, not to an
+# independent party). Same agent directory and checks as pi: ~/.pi, shared on
+# purpose with Pi, so `--state pi` serves both images.
+FROM nono AS pi-bolt
+
+ARG PI_BOLT_VERSION=1.0.2
+ARG PI_BOLT_SHA256=acca0a2c070ea2664884350e5a3cbf2afbdada3b1966130ce025065796cfbeb3
+
+ENV PI_SKIP_VERSION_CHECK=1
+
+USER root
+RUN curl -sfL -o /tmp/pi-bolt.tar.xz \
+      "https://github.com/opensec-git/Pi-Bolt/releases/download/bolt-v${PI_BOLT_VERSION}/pi-bolt-linux-arm64.tar.xz" \
+ && echo "${PI_BOLT_SHA256}  /tmp/pi-bolt.tar.xz" | sha256sum --strict --check - \
+ && mkdir -p /opt/hestia/pi-bolt \
+ && tar -xJf /tmp/pi-bolt.tar.xz -C /opt/hestia/pi-bolt --strip-components=1 --no-same-owner \
+ && rm /tmp/pi-bolt.tar.xz \
+ && ln -s /opt/hestia/pi-bolt/pi /usr/local/bin/pi-bolt \
+ && pi-bolt --version | grep -qF "(Pi-Bolt ${PI_BOLT_VERSION}, linux-arm64," \
+ && install -d -o dev -g dev /home/dev/.pi
+USER dev
+
+# claude-code — Anthropic's Claude Code, the native linux-arm64 (glibc) build
+# published as npm package @anthropic-ai/claude-code-linux-arm64 and fetched
+# from the registry directly: one self-contained binary, no Node.js or npm in
+# the image. Pinned to the `stable` dist-tag as of 2026-10-24. The tarball's
+# sha256 was checked against the registry's sha512 integrity, and both
+# registry ECDSA signatures over that integrity verified against npm's
+# published key; no npm provenance attestation is published for it.
+# DISABLE_AUTOUPDATER=1: the binary is root-owned and pinned, so updates are
+# rebuilds. CLAUDE_CONFIG_DIR puts all state in one directory: without it
+# Claude Code also writes ~/.claude.json beside ~/.claude (observed), which a
+# `--state claude` bind would miss. Network traffic beyond the model API
+# (telemetry, error reporting, remote settings) is left at Claude Code's
+# defaults; CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 turns it off at runtime.
+FROM nono AS claude-code
+
+ARG CLAUDE_CODE_VERSION=2.1.308
+ARG CLAUDE_CODE_SHA256=e939ff4445b9942fe04af0f2892e7052b48c09609b1b340ce7ac47c87db8619f
+
+ENV CLAUDE_CONFIG_DIR=/home/dev/.claude \
+    DISABLE_AUTOUPDATER=1
+
+USER root
+RUN curl -sfL -o /tmp/claude-code.tgz \
+      "https://registry.npmjs.org/@anthropic-ai/claude-code-linux-arm64/-/claude-code-linux-arm64-${CLAUDE_CODE_VERSION}.tgz" \
+ && echo "${CLAUDE_CODE_SHA256}  /tmp/claude-code.tgz" | sha256sum --strict --check - \
+ && tar -xzf /tmp/claude-code.tgz -C /tmp --no-same-owner package/claude \
+ && install -m 0755 /tmp/package/claude /usr/local/bin/claude \
+ && rm -rf /tmp/claude-code.tgz /tmp/package \
+ && claude --version | grep -qxF "${CLAUDE_CODE_VERSION} (Claude Code)" \
+ && install -d -o dev -g dev /home/dev/.claude
 USER dev
 
 # XJVWF4K — optional agent layer: omp (oh-my-pi, TG7VZBV decision; AWS Bedrock
