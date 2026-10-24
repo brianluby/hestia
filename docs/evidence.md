@@ -699,3 +699,31 @@ evidence.
 - **Not run:** any image build, `nono` inside a Hestia container on any
   platform, an agent started under nono, and nono rollback/audit behavior
   across recreation.
+
+## nono configuration review — 2026-10-24
+
+Same cloud host as above (Linux x86_64, kernel 6.18.44, no Docker), nono
+v0.80.0 x86_64 binary, scratch `HOME`; not a Hestia container. Findings feed
+[nono best practices](nono.md).
+
+- `nono profile list`: nine built-in profiles, none for omp, pig or Hestia
+  paths. registry.nono.sh was unreachable from this session.
+- `nono why` against a profile using the `enterprise` network preset:
+  `bedrock-runtime.us-west-2.amazonaws.com`, `bedrock.us-west-2.amazonaws.com`
+  and `sts.us-west-2.amazonaws.com` DENIED; `x.bedrock-runtime.amazonaws.com`
+  ALLOWED. The preset's suffixes do not cover regional Bedrock hosts.
+- `nono run --profile <file>` with `workdir.access: "readwrite"` and no TTY
+  printed "Skipping CWD prompt (non-interactive)"; writing the checkout failed
+  with `Permission denied`, and the diagnostic reported no path denials. With
+  `--allow-cwd` the same write succeeded.
+- A profile with `environment.allow_vars: ["PATH", "HOME", "TERM", "AWS_*"]`
+  passed `AWS_REGION` and removed `PI_CONFIG_FILES` and `GIT_CONFIG_COUNT`.
+- Allowing the checkout and denying `$WORKDIR/.env` exited 1: "Landlock
+  deny-overlap is not enforceable on Linux. Refusing to start with conflicting
+  policy."
+- The example `hestia-omp` profile validated. A real run wrote the checkout
+  and `~/.omp`, could not read `~/.ssh`, and kept `PI_CONFIG_FILES`. `why`
+  results are listed in the best-practices page; `why` did not apply
+  `workdir` access.
+- **Not run:** omp under nono, real provider traffic through nono's proxy,
+  rollback/audit across recreation, and anything on arm64 or in a container.
