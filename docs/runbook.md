@@ -392,6 +392,30 @@ authentication, an assisted change and session persistence exactly like step 9,
 and record "not run" for anything not exercised: the image build proves no
 authentication and no session behavior.
 
+## 9b2. Opt-in agents: Pi, Pi-Bolt, Claude Code (optional, unverified)
+
+Each is its own image, used exactly like PiG in 9b; nothing above changes. Pick
+one, build it and regenerate the workspace with its state:
+
+```sh
+TARGET=pi            # or pi-bolt, or claude-code
+STATE=pi             # pi for pi and pi-bolt, claude for claude-code
+docker build --platform linux/arm64 --target "$TARGET" -t "hestia-$TARGET:tester" "$HESTIA"
+"$HESTIA/workspace/workspace-lifecycle.sh" stop "$COMPOSE"
+"$HESTIA/workspace/workspace-lifecycle.sh" remove-runtime "$COMPOSE"
+"$HESTIA/workspace/workspace-compose.sh" --image "hestia-$TARGET:tester" --state "$STATE" --out "$COMPOSE" "$REPO"
+"$HESTIA/workspace/workspace-lifecycle.sh" start "$COMPOSE"
+"$HESTIA/workspace/workspace-lifecycle.sh" attach "$COMPOSE"
+```
+
+**Expect:** the build fails if a download does not match its pinned digest.
+Inside, `pi --version` prints `1.4.0`, `pi-bolt --version` prints
+`1.4.0 (Pi-Bolt 1.0.2, linux-arm64, JIT off)`, and `claude --version` prints
+`2.1.308 (Claude Code)`. Each authenticates through its own `/login` (Claude
+Code: its sign-in flow, or `ANTHROPIC_API_KEY` supplied at runtime). Record
+authentication, an assisted change, and state surviving `recreate` exactly as
+in step 9, and "not run" for anything not exercised.
+
 ## 9c. Sandbox CLI: nono (optional, unverified)
 
 The `agent` and `pig` images both carry nono; nothing above changes. Its build

@@ -180,7 +180,7 @@ bind can never point outside the workspace state directory; each `--state`
 target must also be its own container path, since Compose wants one mount per
 target, and it must not sit on or above a path the workspace needs — the
 checkout, the Git metadata, the state directory, the cache volume, or the
-image-owned mise toolchain, `/usr/local/bin` and `/opt/hestia/omp` — because a
+image-owned mise toolchain, `/usr/local/bin` and `/opt/hestia` — because a
 bind hides whatever it covers. It must be a plain path: a `.` or `..` segment or
 a doubled `/` is refused, since Compose cleans the target before mounting and
 `/home/dev/.omp/../../../usr/local/bin` would otherwise reach the installed
@@ -212,6 +212,29 @@ to bind `<state-root>/<workspace-id>/pig` at `/home/dev/.pig` in place of the
 omp default. PiG is pre-1.0 (`0.4.1+1.0.3` when this was written) and its
 authentication, assisted work and session persistence are unverified here;
 only the image build and the offline binary were exercised.
+
+Three more opt-in images follow the same pattern, each from its own target;
+none changes the omp default, ships a provider policy or sandboxes its tools:
+
+| Target / binary | What it is | State |
+| --- | --- | --- |
+| `pi` → `pi` | Upstream [Pi](https://github.com/earendil-works/pi) v1.4.0, its own Bun-compiled release binary | `--state pi` (`~/.pi`) |
+| `pi-bolt` → `pi-bolt` | [Pi-Bolt](https://github.com/opensec-git/Pi-Bolt) 1.0.2: Pi 1.4.0 compiled ahead of time; young and experimental | `--state pi` (`~/.pi`, shared with Pi by design) |
+| `claude-code` → `claude` | Anthropic's [Claude Code](https://github.com/anthropics/claude-code) 2.1.308 (the `stable` tag), the native linux-arm64 binary from npm | `--state claude` (`~/.claude`) |
+
+Build with `docker build --target <target> -t hestia-<target>:<tag> .`, then
+generate with `--image hestia-<target>:<tag> --state <name>`. Each binary is
+pinned by sha256 and verified at build; Pi-Bolt's digest was also checked
+against its signed `SHA256SUMS`, and Claude Code's against npm's signed
+registry integrity. Upstream Pi publishes neither signatures nor
+attestations. Version checks and auto-updates are off in the image
+(`PI_SKIP_VERSION_CHECK=1`, `DISABLE_AUTOUPDATER=1`): update by rebuilding.
+`CLAUDE_CONFIG_DIR=/home/dev/.claude` keeps Claude Code's `.claude.json`
+inside the state directory instead of beside it in `$HOME`. Claude Code's
+other non-model traffic stays at its defaults;
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` at runtime turns it off. Only the
+install steps have run (on x86_64, with each release's x64 assets): no arm64
+image has been built and no authentication or assisted work is verified.
 
 **nono** ([nolabs-ai/nono](https://github.com/nolabs-ai/nono)) is in both
 agent images, from the shared `nono` stage: a kernel-enforced sandbox CLI

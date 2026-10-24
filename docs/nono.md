@@ -60,9 +60,10 @@ can read a sibling agent's state.
    | Path | Grant | Why |
    | --- | --- | --- |
    | Checkout (and the common Git dir for worktrees) | read+write | The work |
-   | `~/.omp` (omp) or `~/.pig` (PiG) | read+write | The agent's own sessions and settings |
+   | `~/.omp` (omp), `~/.pig` (PiG), `~/.pi` (Pi, Pi-Bolt) or `~/.claude` (Claude Code) | read+write | The agent's own sessions and settings |
    | `/hestia/cache` | read+write | `GOCACHE`/`GOMODCACHE` point here |
    | `/opt/hestia/omp` | read only | omp's provider-policy overlay |
+   | `/opt/hestia/pi` or `/opt/hestia/pi-bolt` | read only | Pi's or Pi-Bolt's install tree (themes, assets) |
    | `~/.local/state/mise` | read only | mise trust records; write would let the agent `mise trust` its own edits, defeating `MISE_PARANOID=1` |
 
    Never grant `$HOME`, `~/.local` or the workspace state directory root.

@@ -257,6 +257,8 @@ state_target() {
 # reserved list below and the emitted file cannot drift apart. The mise install
 # dirs stay literal: their container paths live in the Dockerfile
 # (MISE_DATA_DIR and the config directory), which this generator does not read.
+# /opt/hestia is reserved whole: it holds the omp policy and the opt-in agents'
+# install trees (pi, pi-bolt), and new image-owned trees go there too.
 policy_dir=/opt/hestia/omp
 cache_dir=/hestia/cache
 state_reserved=(
@@ -266,7 +268,7 @@ state_reserved=(
 	/home/dev/.local/share/mise
 	/home/dev/.config/mise
 	/usr/local/bin
-	"$policy_dir"
+	/opt/hestia
 )
 state_targets=()
 for spec in "${state_specs[@]}"; do

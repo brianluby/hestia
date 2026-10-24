@@ -727,3 +727,46 @@ v0.80.0 x86_64 binary, scratch `HOME`; not a Hestia container. Findings feed
   `workdir` access.
 - **Not run:** omp under nono, real provider traffic through nono's proxy,
   rollback/audit across recreation, and anything on arm64 or in a container.
+
+## Opt-in Pi, Pi-Bolt and Claude Code stages — 2026-10-24 (not built)
+
+Same cloud host (Linux x86_64, no Docker daemon). Three sibling stages on
+`nono`: `pi`, `pi-bolt`, `claude-code`. No arm64 image was built.
+
+- **Pins (linux-arm64).** Pi `v1.4.0` `pi-linux-arm64.tar.gz`
+  `fa5829c7ef83ffeaebba015715c8306220f89b2aa8a00154efbba98dd5440156`, matching
+  upstream's unsigned `SHA256SUMS`. Pi-Bolt `bolt-v1.0.2`
+  `pi-bolt-linux-arm64.tar.xz`
+  `acca0a2c070ea2664884350e5a3cbf2afbdada3b1966130ce025065796cfbeb3`, matching
+  its `SHA256SUMS`, whose Ed25519 signature verified with OpenSSL 3.0.13
+  against the repository's `keys/release.pub`. Claude Code `2.1.308` (npm
+  `stable` dist-tag) `@anthropic-ai/claude-code-linux-arm64`, tarball sha256
+  `e939ff4445b9942fe04af0f2892e7052b48c09609b1b340ce7ac47c87db8619f`; its
+  sha512 matches the registry integrity, and both registry ECDSA signatures
+  over `name@version:integrity` verified against npm's key
+  `SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U`. No npm provenance
+  attestation exists for it. `downloads.claude.ai` (the native installer's
+  host) was unreachable from this session.
+- **Binaries.** All three arm64 executables are glibc ELF needing only core
+  libraries (highest symbol `GLIBC_2.17` for Pi and Pi-Bolt, `GLIBC_2.26` for
+  Claude Code, which also needs `librt`), within bookworm's 2.36.
+- **Install steps.** Each stage's `RUN` text, extracted from the Dockerfile
+  with paths redirected into a scratch tree and x64 assets/digests
+  substituted, exited 0: digest checked, tree extracted (`--no-same-owner`),
+  binary linked, `--version` matched, state directory created, no temporary
+  files left, nothing written to the build user's home. A wrong digest stops
+  at the check. Through a `/usr/local/bin` symlink, Pi and Pi-Bolt resolve
+  `process.execPath` to the install tree and load their model data.
+- **Runtime observations (x64 builds).** With update checks off, `--version`
+  wrote nothing under `HOME` for any of the three. Without
+  `CLAUDE_CONFIG_DIR`, Claude Code wrote `~/.claude.json` beside `~/.claude`;
+  with it set, everything stayed inside that directory. `claude doctor`
+  fetched remote settings and policy limits into the config directory.
+- **Generator.** `/opt/hestia` is now reserved whole. In isolation:
+  `/opt/hestia`, `/opt/hestia/{omp,pi,pi-bolt,x}`, `/opt`, `/opt/hestia/` and
+  `/usr/local/bin` refused; `pi`, `claude`, `omp`, `pig`,
+  `nono:/home/dev/.local/state/nono` and `x:/opt/other` accepted (14/14). The
+  default output is unchanged. Identity 22/22, fixture-snapshot 7/7; the
+  mounts suite skips without Docker.
+- **Not run:** any arm64 build, any agent inside a container, authentication,
+  assisted work, and session persistence across recreation.
