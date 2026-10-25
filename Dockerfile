@@ -146,16 +146,18 @@ RUN mise install --yes \
  && rm -rf /tmp/fixture-src /tmp/hestia-build-cache
 
 # nono — kernel-enforced sandbox CLI (github.com/nolabs-ai/nono), shared by
-# both agent stages below so either harness can be started under it
-# (`nono run --allow <path>... -- <command>`; an agent also needs its own state
-# and network allowed, and no such profile ships). It is a tool, not a wrapper: nothing here
-# changes how omp or pig start, and nono applies no policy until invoked. On
-# Linux it enforces through Landlock (plus seccomp for its network proxy) and
-# refuses to start the command when Landlock is not enforced at all; Docker
-# 29.5.2's default seccomp profile allows the landlock_* syscalls. Whether
-# the macOS runtime's VM kernel (Colima in the recorded runs) enables Landlock
-# is not yet observed: `nono setup --check-only` inside the workspace reports
-# it.
+# every agent stage below so any harness can be started under it
+# (`nono run --allow <path>... -- <command>`). An agent also needs its own
+# state and its provider hosts allowed: Hestia's profiles for that are copied
+# into this stage below (nono's built-ins cover no agent or Hestia path —
+# docs/nono.md). It is a tool, not a wrapper: nothing here changes how an
+# agent starts, and nono applies no policy until invoked. On Linux it enforces
+# through Landlock (plus seccomp for its network proxy) and refuses to start
+# the command when Landlock is not enforced at all; Docker 29.5.2's default
+# seccomp profile allows the landlock_* syscalls. The macOS runtime's Colima VM
+# kernel enforces Landlock V4 and reports `degraded: IoctlDev, Scoping`
+# (partially enforced); `nono setup --check-only` reports the status inside a
+# workspace.
 #
 # Same verification chain as mise: the pinned digest of the release tarball
 # (cross-checked 2026-10-24 against upstream's SHA256SUMS.txt for v0.80.0)
