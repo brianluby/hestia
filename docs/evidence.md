@@ -653,8 +653,8 @@ the other Docker-backed suites were not run here.
 ## nono sandbox CLI layer — 2026-10-24 (implementation slice, not built)
 
 nono ([github.com/nolabs-ai/nono](https://github.com/nolabs-ai/nono),
-Apache-2.0) is added as a shared `nono` stage between `fixture-tools` and both
-agent stages. Everything below was observed in a Linux x86_64 cloud session
+Apache-2.0) is added as a shared `nono` stage between `fixture-tools` and every
+agent stage. Everything below was observed in a Linux x86_64 cloud session
 (kernel 6.18.44, no Docker daemon), **not** on the Apple Silicon host: no
 image containing this stage has been built, and nothing here is arm64 runtime
 evidence.
@@ -806,3 +806,53 @@ container; no arm64.
 - **Not run:** omp and PiG binaries under nono, any authenticated agent
   session or assisted change, provider traffic beyond the one `curl`, and
   anything on arm64 or in a container.
+
+## nono and opt-in agent stages — 2026-10-24 (arm64 build verification)
+
+Supersedes the "not built" limits in the three sections above; the x86_64
+observations there are unchanged. Host: Apple Silicon macOS, Docker 29.5.2
+(Colima), Compose 5.6.1, linux/arm64; commit `69bb5eb` in a throwaway
+worktree. Nothing below is an agent session.
+
+- **Builds.** `docker build --target <t> .` exited 0 for `nono`, `pi`,
+  `pi-bolt`, `claude-code`, `agent` and `pig`. The nono layer logged
+  `Verified OK` from cosign (SLSA v1 bundle naming `release.yml`) and
+  `nono 0.80.0`; the tarball digest matched both the pin and upstream's
+  `SHA256SUMS.txt`. Every other downloaded asset reproduced its pinned
+  sha256.
+- **Installed versions.** `nono 0.80.0`, `pi 1.4.0`,
+  `pi-bolt` `1.4.0 (Pi-Bolt 1.0.2, linux-arm64, JIT off)`,
+  `claude` `2.1.308 (Claude Code)`, `pig 0.4.1+1.0.3`, `omp/18.1.16`.
+  `claude --help` also ran.
+- **Layout.** `/opt/hestia/nono` and `/opt/hestia/omp` are root-owned;
+  `/home/dev/{.pi,.pig,.claude,.claude.lock,.local/state/nono}` are dev-owned.
+  The image's `.claude.lock` existed at build time, so the profile grant is
+  not skipped.
+- **Landlock.** The Colima VM kernel enforces Landlock V4. `nono setup
+  --check-only` exited 0, ended `Installation verified!`, and reported
+  `degraded: IoctlDev, Scoping` — partially enforced, as upstream describes,
+  so those features are absent from the boundary. A supervised run applied
+  the profile and reported no path denials for a successful command.
+- **Profiles.** All five validated with the pinned binary, both as the
+  darwin-aarch64 build and inside the image. `nono why` inside the image
+  agreed with the published matrix for the checks run: every agent profile
+  denies `github.com`; `hestia-omp` allows
+  `bedrock-runtime.us-west-2.amazonaws.com` and denies the regionless host;
+  `hestia-claude` allows `api.anthropic.com` and denies
+  `statsig.anthropic.com`; `hestia-pig` allows `api.openai.com`;
+  `hestia-pi` allows `pi.dev`.
+- **Base profile network.** A `"block": true` in `hestia-base` was tried and
+  reverted: nono merges the flag as `base.block || child.block`
+  (`crates/nono-cli/src/profile/mod.rs`, v0.80.0), so it is sticky and every
+  agent profile then denied its own hosts (observed). The base therefore
+  stays unfiltered and is documented as not for direct use; the shipped
+  profiles' own allowlists are pinned by the new test.
+- **Runbook 9c probe.** The default-profile probe printed `inside`, then
+  `Permission denied` for `cat ~/.bashrc`, as the runbook expects.
+- **Tests.** `workspace-mounts.test.sh` 74/74 and
+  `workspace-lifecycle.test.sh` 33/33 on this commit. New
+  `tests/nono-profiles.test.sh`: 6/6 with `NONO_TEST_IMAGE=hestia-nono:<tag>`
+  (it validates each profile and each agent allowlist, and skips when nono is
+  absent); a fake nono that allows everything makes it fail.
+- **Not run:** an agent under a profile, authenticated provider traffic,
+  rollback/audit across recreation, and Windows/WSL2.

@@ -3,12 +3,14 @@
 [Workspace reference](../workspace/README.md#agent-layers) · [Architecture](architecture.md) · [Evidence log](evidence.md)
 
 **Status:** guidance for the pinned nono v0.80.0 in every agent image, and
-the [profiles the images ship](#shipped-profiles). No image containing nono
-has been built, and nothing here has run inside a Hestia container.
+the [profiles the images ship](#shipped-profiles). The `nono` stage and every
+agent image build on the Apple Silicon host and nono runs in that image (see
+the [evidence](evidence.md)); no agent has started under a profile.
 Statements marked *observed* were run with the same release's x86_64 binary
-on a Linux 6.18 cloud host (2026-10-24); the rest cite upstream's v0.80.0
-sources, linked at the end. The shipped profiles are tested starting points,
-not accepted configurations: no agent has done assisted work under them.
+on a Linux 6.18 cloud host (2026-10-24) unless the [evidence](evidence.md)
+says the arm64 image; the rest cite upstream's v0.80.0 sources, linked at the
+end. The shipped profiles are tested starting points, not accepted
+configurations: no agent has done assisted work under them.
 
 ## What nono adds here
 
@@ -27,7 +29,7 @@ can read a sibling agent's state.
 | Setting (Dockerfile `nono` stage) | Assessment |
 | --- | --- |
 | v0.80.0 tarball pinned by sha256, cross-checked with upstream `SHA256SUMS.txt` | Keep. Matches the mise pattern. |
-| SLSA provenance required from `release.yml` only, not the whole `workflows/` prefix | Keep. `attest-release.yml` re-attests downloaded assets and proves nothing about the build. First real verification is the Mac build. |
+| SLSA provenance required from `release.yml` only, not the whole `workflows/` prefix | Keep. `attest-release.yml` re-attests downloaded assets and proves nothing about the build. Verified on the arm64 build: cosign accepts a `release.yml` bundle and the check fails the build otherwise ([evidence](evidence.md)). |
 | `NONO_NO_UPDATE_CHECK=1` | Keep. The binary is pinned; the check would contact `update.nono.sh` daily with an install UUID. |
 | `~/.local/state/nono` created dev-owned | Keep. Audit logs, sessions and rollbacks live there and are lost on recreation unless bound with `--state` (below). |
 | Hestia profiles shipped root-owned in `/opt/hestia/nono`; agents still start unsandboxed by default | The built-in profiles (`default`, `mise-dev`, `go-dev`, …) cover no agent or Hestia path (*observed*: `nono profile list`), so Hestia ships its own ([below](#shipped-profiles)). Starting agents under nono by default is an open choice. |
@@ -37,8 +39,10 @@ can read a sibling agent's state.
 1. **Check enforcement before relying on it.** Run `nono setup --check-only`
    in each new runtime. nono refuses to run when Landlock reports
    `NotEnforced` and continues on `PartiallyEnforced` (newer rules the kernel
-   lacks), so read `nono run -v` output for the status. Whether the macOS
-   runtime's VM kernel enables Landlock is unobserved.
+   lacks), so read `nono run -v` output for the status. The macOS runtime's
+   Colima VM kernel enforces Landlock V4 and reports `degraded: IoctlDev,
+   Scoping` (partially enforced); record the version and any degraded line on
+   a new runtime.
 
 2. **Grant the checkout explicitly.** *Observed:* `workdir.access:
    "readwrite"` alone left the checkout read-only, with "Skipping CWD prompt
@@ -136,7 +140,9 @@ can read a sibling agent's state.
     `workdir` access in testing, so check the checkout with a real run.
     Registry packs (`nono pull`) download when you run the command and can
     bring hooks and skills; read them with `nono profile show` and prefer a
-    reviewed local copy.
+    reviewed local copy. `tests/nono-profiles.test.sh` runs the validation
+    over the shipped files (`NONO_TEST_IMAGE=hestia-agent:<tag>` inside a
+    built image; skipped when nono is absent).
 
 11. **Persist audit and rollback state deliberately.** Supervised runs
     (`nono run`) record an audit session by default; `--rollback` adds
@@ -158,8 +164,11 @@ can read a sibling agent's state.
 The [`agent/nono`](../agent/nono) files are copied root-owned to
 `/opt/hestia/nono` in every agent image. `hestia-base` holds the workspace
 paths (practice 4) and is not for direct use: it clears the network preset
-and lists no hosts, so on its own it would leave egress unfiltered. Each
-agent profile extends it by name; nono resolves the sibling file first.
+and lists no hosts, so on its own it leaves egress unfiltered. That is
+deliberate — nono merges `block` with a sticky OR (`base.block ||
+child.block`), so a base that blocked could not have children that allow
+anything — and every agent profile below sets its own allowlist. Each profile
+extends the base by name; nono resolves the sibling file first.
 
 | Profile | For | Own state (read+write) | Read only | Hosts |
 | --- | --- | --- | --- | --- |
