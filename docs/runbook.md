@@ -418,10 +418,10 @@ in step 9, and "not run" for anything not exercised.
 
 ## 9c. Sandbox CLI: nono (optional, unverified)
 
-The `agent` and `pig` images both carry nono; nothing above changes. Its build
-step verifies the release digest and its SLSA provenance and fails the build if
-either check fails, so a successful `agent` build from step 9 is the first
-result to record. Then, in an attached shell:
+The `agent`, `pig`, `pi`, `pi-bolt` and `claude-code` images all carry nono;
+nothing above changes. Its build step verifies the release digest and its SLSA
+provenance and fails the build if either check fails, so a successful `agent`
+build from step 9 is the first result to record. Then, in an attached shell:
 
 ```sh
 nono --version                 # expect: nono 0.80.0
@@ -432,7 +432,9 @@ rm "$PWD/nono-probe.txt"
 ```
 
 **Expect:** `--check-only` reports Landlock support and ends with
-`Installation verified!`. The probe prints `inside`, then `cat ~/.bashrc` fails
+`Installation verified!`. Record the Landlock version and any degraded
+features it lists: partially enforced is expected on some kernels and nono
+still runs there. The probe prints `inside`, then `cat ~/.bashrc` fails
 with `Permission denied`, because the home directory is not allowed. If nono
 reports no Landlock support, record that with the kernel version (`uname -r`):
 nono will not run commands on that runtime, and that is the expected
@@ -447,6 +449,10 @@ nono run --allow-cwd --profile /opt/hestia/nono/hestia-omp.json -- omp
 Record whether the agent authenticates, makes an assisted change and builds,
 and any denial nono reports, with the host it names. Each denial is either a
 missing grant to record or an access the profile correctly refused.
+
+The shipped profiles have their own check, which skips when nono is absent and
+otherwise validates every profile and its host allowlists:
+`NONO_TEST_IMAGE=hestia-agent:<tag> bash tests/nono-profiles.test.sh`.
 
 ## 10. Record results and stop safely
 

@@ -232,9 +232,10 @@ attestations. Version checks and auto-updates are off in the image
 `CLAUDE_CONFIG_DIR=/home/dev/.claude` keeps Claude Code's `.claude.json`
 inside the state directory instead of beside it in `$HOME`. Claude Code's
 other non-model traffic stays at its defaults;
-`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` at runtime turns it off. Only the
-install steps have run (on x86_64, with each release's x64 assets): no arm64
-image has been built and no authentication or assisted work is verified.
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` at runtime turns it off. Every
+target builds on linux/arm64, and each binary reports its pinned version
+inside its image; no authentication, assisted work or agent session is
+verified.
 
 **nono** ([nolabs-ai/nono](https://github.com/nolabs-ai/nono)) is in every
 agent image, from the shared `nono` stage: a kernel-enforced sandbox CLI
@@ -250,8 +251,8 @@ agent sessions. Registry
 profiles (`nono pull`) download at the moment you run that command, and the
 pinned binary's update check is off (`NONO_NO_UPDATE_CHECK=1`). Run
 `nono setup --check-only` first: nono refuses to start a command when the
-kernel enforces no Landlock rules, and whether the macOS runtime's VM kernel
-enables Landlock is not yet observed. Its audit logs, sessions and rollback
+kernel enforces no Landlock rules, and the macOS runtime's Colima VM kernel
+reports Landlock V4, partially enforced (`degraded: IoctlDev, Scoping`). Its audit logs, sessions and rollback
 snapshots live in `~/.local/state/nono`; to keep them across recreation, add
 `--state nono:/home/dev/.local/state/nono` (and repeat `--state omp`, since
 any `--state` replaces the omp default). Rollback snapshots are local undo,
