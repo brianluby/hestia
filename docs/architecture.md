@@ -58,7 +58,7 @@ Use this identity consistently for containers, networks, caches, and agent/servi
 
 **Decision:** use one Dockerfile/build route with reusable stages or named targets. The base contains OS utilities and mise; project layers install declared tools and selected optional agents. Record versions and appropriate upstream verification evidence per architecture. Application dependency lockfiles remain authoritative; mise lock guarantees vary by backend and must be checked.
 
-Normal startup installs or upgrades no tools. Declaration changes require an explicit build/update. Keep trusted build manifests separate from arbitrary project code; mounting a repository does not automatically authorize its hooks, tasks, or mise configuration. Preserve native trust controls. Never include credentials or agent login state in build contexts.
+Normal startup installs or upgrades no tools of the image; the `hestia` launcher additionally installs a checkout's declared tools into the disposable cache volume ([ADR-006](#adr-006-three-step-start)). Declaration changes to the image require an explicit build/update. Keep trusted build manifests separate from arbitrary project code; mounting a repository does not automatically authorize its hooks, tasks, or mise configuration. Preserve native trust controls. Never include credentials or agent login state in build contexts.
 
 Run one workspace variant per checkout by default. A future IDE variant adds an IDE to the same project/agent environment, retaining source and persistent state when switching variants. Independent project services remain separate Compose services.
 
@@ -98,7 +98,7 @@ Tests use unique disposable identities and synthetic storage, never production r
 
 ## ADR-006: Three-step start
 
-**Status: Accepted requirement 2026-10; not implemented.** A product review found that reaching an agent prompt took about ten expert steps (build, generate, validate, start, attach, trust, toolchain, login), and had no supported path to a real repository's toolchain. The architecture above stays; the user no longer assembles it.
+**Status: Accepted requirement 2026-10; launcher and first-start toolchain install implemented; installer and shared-login concurrency checks pending.** A product review found that reaching an agent prompt took about ten expert steps (build, generate, validate, start, attach, trust, toolchain, login), and had no supported path to a real repository's toolchain. The architecture above stays; the user no longer assembles it.
 
 **Decision:** the user journey is at most three steps after Docker is installed:
 
@@ -113,7 +113,7 @@ This amends earlier decisions:
 - **Default agent is upstream Pi** (the `pi` target). omp, PiG and Claude Code stay opt-in images. Pi supports Bedrock through ambient AWS credentials, so Bedrock remains available to the Argus pilot.
 - **Login once per user, not once per repository** (amends ADR-004). One Hestia-owned agent home (not the host home) is bound into every workspace. Pi stores credentials in `~/.pi/agent/auth.json` and keys sessions by working directory. Hestia preserves checkout paths, so sessions stay per checkout. Pi 1.5.0 source serializes `auth.json` and `settings.json` writes with a `proper-lockfile` lock and re-checks an OAuth token under that lock before refreshing; the 1.4.0 image binary contains the same code. Two workspaces refreshing at once has not been run, and the lock is a directory made with `mkdir` on a bind mount, which is unverified across containers on Docker Desktop.
 - **Launching a checkout trusts that checkout's mise configuration**, and nothing else (amends ADR-003). Running `hestia` in a repository is the user's consent. Trust is scoped to that path and survives recreation.
-- **The first start installs the toolchain the checkout declares** into a persistent, rebuildable tool cache, then reuses it (amends ADR-003 "startup installs no tools"). Later starts install only after declarations change. Startup never silently upgrades installed tools.
+- **The first start installs the toolchain the checkout declares** into a persistent, rebuildable tool cache, then reuses it (amends ADR-003 "startup installs no tools"). Later starts install only after declarations change. Startup never silently upgrades installed tools. Implemented in the launcher: mise's data directory is `/hestia/cache/mise` on the workspace's `linux-caches` volume, the image's tools are read through mise's read-only `shared_install_dirs`, and an install failure warns without blocking the agent. Verified on mise 2026.9.4 with jq on macOS arm64 (see [workspace README](../workspace/README.md#quick-start-launcher)); Go and other toolchains, and offline starts, are not exercised.
 
 Prebuilt published images, desktop installers and agent choice prompts are deferred until the local build path proves too slow or too hard.
 

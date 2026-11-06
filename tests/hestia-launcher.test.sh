@@ -6,12 +6,19 @@
 # beside the state directory (out of the container's reach) with pi's shared
 # home and a MISE_TRUSTED_CONFIG_PATHS scoped to the checkout, a second launch
 # reuses the same running container, and mise in the container trusts the
-# checkout's mise.toml without `mise trust` (but not other directories). A second checkout under the same state root shares ~/.pi
-# (login once per user) without seeing the first workspace's state directory.
+# checkout's mise.toml without `mise trust` (but not other directories). A
+# second checkout under the same state root shares ~/.pi (login once per user)
+# without seeing the first workspace's state directory.
+# The checkout's declared tool (jq 1.7.1, not Debian's 1.6) installs into the
+# cache volume on the first launch, is on PATH for the process the launcher
+# opens, is not reinstalled or upgraded later, survives recreate, is removed by
+# clear-caches and installs again; the image's Go keeps working; a declaration
+# that cannot install warns and still opens the agent.
 #
-# Needs a reachable Docker daemon and the default image hestia-pi:local (the
-# launcher builds it on first use; this test never builds it) and prints SKIP
-# and exits 0 otherwise. The fixture lives under the user's home
+# Needs a reachable Docker daemon, network access to GitHub on the first launch
+# (the jq download) and the default image hestia-pi:local (the launcher builds
+# it on first use; this test never builds it); prints SKIP and exits 0 when
+# Docker or the image is missing. The fixture lives under the user's home
 # (Docker-shared path on macOS).
 set -euo pipefail
 
@@ -78,7 +85,7 @@ repo="$root/repo"
 mkdir "$repo"
 git_q() { GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null git -C "$repo" -c user.email=t@example.invalid -c user.name=t "$@"; }
 git_q init -q
-printf '[env]\nHESTIA_PROBE = "trusted"\n' >"$repo/mise.toml"
+printf '[env]\nHESTIA_PROBE = "trusted"\n\n[tools]\njq = "1.7.1"\n' >"$repo/mise.toml"
 git_q add mise.toml
 git_q commit -qm fixture
 
@@ -86,6 +93,8 @@ echo "== launch through a symlink =="
 (cd "$repo" && "$root/hestia-link" -- --version) >"$root/run1.log" 2>&1 &&
 	ok "hestia runs pi in the container and passes agent args" || bad "first launch failed: $(cat "$root/run1.log")"
 grep -qx '1\.[0-9.]*' "$root/run1.log" && ok "agent output is pi's version" || bad "no pi version in output: $(cat "$root/run1.log")"
+grep -qF "hestia: installing tools declared by $repo" "$root/run1.log" &&
+	ok "first launch installs the declared tools" || bad "no install line: $(cat "$root/run1.log")"
 ws_id="$("$here/identity/workspace-id.sh" "$repo" | sed -n 's/^workspace: //p')"
 compose="$HESTIA_STATE_ROOT/$ws_id.compose.yaml"
 [ -f "$compose" ] && ok "Compose file is beside the workspace state directory" || bad "no $compose"
@@ -101,6 +110,7 @@ id_a="$(docker compose -f "$compose" ps -q workspace)"
 (cd "$repo" && "$root/hestia-link" "$repo" -- --version) >"$root/run2.log" 2>&1 &&
 	ok "second launch (explicit path) succeeds" || bad "second launch failed: $(cat "$root/run2.log")"
 id_b="$(docker compose -f "$compose" ps -q workspace)"
+grep -q 'installing tools' "$root/run2.log" && bad "second launch installed again" || ok "second launch installs nothing"
 { [ -n "$id_a" ] && [ "$id_a" = "$id_b" ] && [ "$(docker inspect -f '{{.State.Running}}' "$id_a")" = true ]; } &&
 	ok "same running container ID" || bad "container changed: '$id_a' -> '$id_b'"
 
@@ -115,12 +125,67 @@ out="$("$life" attach "$compose" sh -c 'mkdir -p /tmp/other && cd /tmp/other && 
 { [ "$other" -eq 1 ] && printf '%s' "$out" | grep -q 'not trusted'; } &&
 	ok "other directories stay untrusted" || bad "other directory was trusted: $out"
 
+echo "== toolchain install =="
+cache_jq=/hestia/cache/mise/installs/jq
+image_installs=/home/dev/.local/share/mise/installs
+"$life" attach "$compose" test -x "$cache_jq/1.7.1/jq" &&
+	ok "declared tool is installed under the cache volume" || bad "jq missing from $cache_jq"
+[ "$("$life" attach "$compose" ls "$image_installs")" = go ] &&
+	ok "the image's install directory gained nothing" || bad "image install dir changed"
+# The launch path: pi is a script in the checkout (mise puts <checkout>/bin on
+# PATH) that reports what the agent's subprocesses resolve.
+mkdir "$repo/bin"
+printf '#!/bin/sh\ncommand -v jq\njq --version\ngo version\n' >"$repo/bin/pi"
+chmod +x "$repo/bin/pi"
+write_decl() { printf '[env]\n_.path = ["{{config_root}}/bin"]\n\n[tools]\n%s\n' "$1" >"$repo/mise.toml"; }
+launch() { (cd "$repo" && "$root/hestia-link") >"$root/$1.log" 2>&1; }
+installed_stamp() { "$life" attach "$compose" stat -c '%i %Y' "$cache_jq/1.7.1"; }
+check_launch_path() {
+	grep -qxE "$cache_jq/1(\.7\.1)?/jq" "$root/$1.log" && grep -qx 'jq-1.7.1' "$root/$1.log" &&
+		grep -q 'go version go1\.' "$root/$1.log"
+}
+write_decl 'jq = "1.7.1"'
+stamp="$(installed_stamp)"
+launch run4 && check_launch_path run4 &&
+	ok "declared jq (not Debian's) and the image's go resolve on PATH for the agent process" || bad "launch path: $(cat "$root/run4.log")"
+grep -q 'installing tools' "$root/run4.log" && bad "installed tools were installed again" || ok "nothing is reinstalled on a later start"
+[ "$(installed_stamp)" = "$stamp" ] && ok "installed directory untouched" || bad "install directory changed"
+"$life" attach "$compose" go version 2>&1 | grep -q 'go version go1\.' &&
+	ok "image tool works without mise exec" || bad "image go not usable"
+
+write_decl 'jq = "1"'
+launch run5 && check_launch_path run5 && ! grep -q 'installing tools' "$root/run5.log" &&
+	! "$life" attach "$compose" ls "$cache_jq" | grep -q '^1\.8' &&
+	ok "a fuzzy declaration keeps the installed version, no upgrade" || bad "fuzzy declaration changed tools: $(cat "$root/run5.log")"
+
+"$life" recreate "$compose" >/dev/null 2>&1 && launch run6 && check_launch_path run6 &&
+	! grep -q 'installing tools' "$root/run6.log" &&
+	ok "recreate keeps the installed tools" || bad "after recreate: $(cat "$root/run6.log")"
+
+write_decl 'jq = "1.7.1"'
+"$life" clear-caches "$compose" >/dev/null 2>&1 || bad "clear-caches failed"
+"$life" attach "$compose" test -e "$cache_jq" && bad "clear-caches left the tools" || ok "clear-caches removes the installed tools"
+launch run7 && check_launch_path run7 && grep -q 'installing tools' "$root/run7.log" &&
+	ok "the next launch installs them again" || bad "after clear-caches: $(cat "$root/run7.log")"
+"$life" attach "$compose" go version 2>&1 | grep -q 'go version go1\.' &&
+	ok "image tool still works after clear-caches" || bad "image go lost"
+
+printf '[tools]\njq = "99"\n' >"$repo/mise.toml"
+(cd "$repo" && "$root/hestia-link" -- --version) >"$root/run8.log" 2>&1 &&
+	grep -q 'hestia: warning: could not install' "$root/run8.log" && grep -qx '1\.[0-9.]*' "$root/run8.log" &&
+	ok "an uninstallable declaration warns and still opens the agent" || bad "bad version: $(cat "$root/run8.log")"
+printf '[tools\n' >"$repo/mise.toml"
+(cd "$repo" && "$root/hestia-link" -- --version) >"$root/run9.log" 2>&1 &&
+	grep -q 'hestia: warning: could not install' "$root/run9.log" && grep -qx '1\.[0-9.]*' "$root/run9.log" &&
+	ok "an unreadable mise.toml warns and still opens the agent" || bad "bad toml: $(cat "$root/run9.log")"
+
 echo "== second checkout shares pi's home =="
 repo2="$root/repo2"
 mkdir "$repo2"
 git -C "$repo2" init -q
 (cd "$repo2" && "$root/hestia-link" -- --version) >"$root/run3.log" 2>&1 &&
 	ok "second checkout launches" || bad "second launch failed: $(cat "$root/run3.log")"
+grep -q 'installing tools\|warning' "$root/run3.log" && bad "a checkout without declarations printed install output" || ok "no declaration: nothing is installed or printed"
 ws_id2="$("$here/identity/workspace-id.sh" "$repo2" | sed -n 's/^workspace: //p')"
 compose2="$HESTIA_STATE_ROOT/$ws_id2.compose.yaml"
 [ "$ws_id" != "$ws_id2" ] && [ -f "$compose2" ] && ok "second checkout is its own workspace" || bad "no distinct workspace for repo2"
