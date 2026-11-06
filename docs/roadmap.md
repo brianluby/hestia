@@ -22,7 +22,7 @@ The [Milestone 1 spec](milestone-1.md) defines requirements M1-01 through M1-09 
 
 ### 1B. Argus on the employer work laptop
 
-- Confirm the laptop's OS, CPU and runtime, plus Argus's toolchain, build/test and service requirements. Run the pilot through the three-step start, using pi with Bedrock through ambient AWS credentials. omp remains opt-in.
+- Confirm the laptop's OS, CPU and runtime, plus Argus's toolchain, build/test and service requirements. Run the pilot through the three-step start, using pi with Bedrock through the explicit AWS handoff helper (the launcher forwards no AWS credentials; unverified with pi). omp remains opt-in.
 - Use the real agent to make a reviewable change, build/test Argus, remove/recreate the workspace, resume selected state and build/test again.
 - Keep source, credentials, employer-specific configuration and detailed evidence on the work laptop. Share only sanitized outcomes appropriate for Hestia documentation.
 - If this laptop uses Windows/WSL2, exercise its pilot path now. The broader matrix in Milestone 5 is additional coverage.

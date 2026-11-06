@@ -6,7 +6,7 @@ Hestia is a terminal-first development container project targeting Apple Silicon
 
 ## Quick start
 
-Needs [Docker](https://docs.docker.com/get-started/get-docker/) running on Apple Silicon macOS (the only exercised platform). Nothing else, no `sudo`.
+Needs [Docker](https://docs.docker.com/get-started/get-docker/) running and Git 2.31 or newer, on Apple Silicon macOS (the only exercised platform). Nothing else, no `sudo`.
 
 1. **Install.** Clones Hestia to `~/.hestia` and links `hestia` into a directory already on your `PATH` (if none is writable it prints one line to add to your shell profile):
 
@@ -15,6 +15,8 @@ Needs [Docker](https://docs.docker.com/get-started/get-docker/) running on Apple
    ```
 
 2. **Run `hestia` in a Git repository:** `cd <your-repo> && hestia`. The first run builds the image (43 s measured with no Docker cache and the Debian base already pulled; a first-ever build also pulls the base) and installs the tools your `mise.toml` or `.tool-versions` declares, then opens pi in a container that sees the same files as your host. Later runs reattach in a second or two.
+
+   **Only launch repositories you trust.** Launching trusts the repository's mise configuration, which can run scripts in the workspace before pi opens. Every workspace shares one pi home, so those scripts, and the agent, can read your pi login and change pi settings for every repository.
 3. **Tell pi what to do.** The first time, sign in with `/login`; the login carries over to every repository.
 
 Update with `git -C ~/.hestia pull`. The next `hestia` builds a new image once if the build inputs changed and recreates the workspace container on it (stop active pi sessions first; source, sessions and installed tools are kept). Old `hestia-pi:*` images stay until you remove them with `docker rmi`.

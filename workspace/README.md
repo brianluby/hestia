@@ -10,7 +10,8 @@ Compose file for `docker compose -f ... run workspace ...`.
 
 `hestia [<checkout-path>] [-- <agent args>...]` at the repository root
 (ADR-006 step 2) runs the steps below for you: it builds `hestia-pi:<hash>` from
-the `pi` target if that image is missing (never pulls), generates
+the `pi` target if that image is missing (it never pulls a prebuilt Hestia
+image; the first build pulls the Debian base if absent), generates
 `<state-root>/<workspace-id>.compose.yaml` with `--shared-state pi` and
 `MISE_TRUSTED_CONFIG_PATHS=<checkout>` (trusting only that checkout's mise
 configuration), `MISE_DATA_DIR=/hestia/cache/mise` and
