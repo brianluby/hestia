@@ -2,17 +2,17 @@
 
 Hestia is a terminal-first development container project targeting Apple Silicon macOS and Windows through WSL2. The goal is reproducible toolchains and disposable containers without disposable work.
 
-**Status: fixture foundation implemented; Milestone 1 acceptance incomplete.** The synthetic Go fixture, checkout identity, canonical linux/arm64 image, scoped Compose generator, durable state, lifecycle/cache helpers and the optional agent layers (omp, PiG) have macOS arm64 evidence in the [evidence log](docs/evidence.md). omp settings persistence and the provider-policy overlay are exercised. Every agent image also carries the [nono](https://github.com/nolabs-ai/nono) sandbox CLI, and opt-in images add upstream Pi, Pi-Bolt and Claude Code; all of them build on the Mac, but no agent session has run under nono or in the new images. The [native LiteLLM fixture proof](docs/m1-apple-silicon-evidence-v2.md) verifies real assisted edits, recreation and saved-session resume; Bedrock authentication, PiG's authentication and sessions, Argus and Windows/WSL2 acceptance are pending. There is no custom Hestia CLI.
+**Status: fixture foundation implemented; Milestone 1 acceptance incomplete.** The synthetic Go fixture, checkout identity, canonical linux/arm64 image, scoped Compose generator, durable state, lifecycle/cache helpers and the optional agent layers (omp, PiG) have macOS arm64 evidence in the [evidence log](docs/evidence.md). omp settings persistence and the provider-policy overlay are exercised. Every agent image also carries the [nono](https://github.com/nolabs-ai/nono) sandbox CLI, and opt-in images add upstream Pi, Pi-Bolt and Claude Code; all of them build on the Mac, but no agent session has run under nono or in the new images. The [native LiteLLM fixture proof](docs/m1-apple-silicon-evidence-v2.md) verifies real assisted edits, recreation and saved-session resume; Bedrock authentication, PiG's authentication and sessions, Argus and Windows/WSL2 acceptance are pending. The three-step start below is a requirement, not yet implemented. Today the path still takes about ten expert steps (see the [runbook](docs/runbook.md)).
 
-## Intended workflow
+## Target workflow: three steps
 
-The [workspace walkthrough](workspace/README.md#fixture-walkthrough) is runnable with the current fixture tools. The broader project workflow remains the goal:
+With Docker installed ([ADR-006](docs/architecture.md#adr-006-three-step-start)):
 
-1. Select an existing host repository (for example under `~/repos`) and identify its checkout and, when applicable, shared Git metadata. Host tools continue using the same source files.
-2. Start its workspace through Docker Compose using one canonical image/build path. Use mise to manage the repository's declared toolchains.
-3. Attach through a terminal. Optionally install and use a coding agent such as Codex CLI, omp, or pi.dev, with that agent's own authentication, session, and permission mechanisms.
-4. Build and test using the repository's normal workflow. Compose additional project services only when needed.
-5. Recreate the container without losing source changes, Git metadata, or selected durable state. Treat caches as rebuildable, not as the only copy of work.
+1. **Install** Hestia with one copy-paste command.
+2. **Run `hestia`** in any repository. The first run builds the image and the repository's declared toolchain, then opens pi in a container that sees the same files as your host.
+3. **Tell pi what to do.** The first time, sign in with `/login`. The login carries over to every repository.
+
+Run `hestia` again to return to the workspace. Recreating the container keeps source changes, Git metadata and agent sessions; caches can be rebuilt. Expert controls (identity, mounts, lifecycle, sandboxing, provider handoffs) remain in the [workspace helpers](workspace/README.md). You never need them to get started.
 
 ## Initial scope
 
@@ -28,7 +28,7 @@ Identity and worktree mount planning are part of the foundation; full concurrent
 
 ## Project notes
 
-- [Tester runbook](docs/runbook.md): step-by-step fixture setup, workspace checks, persistence, optional omp acceptance and regression commands.
+- [Tester runbook](docs/runbook.md): verification of internals, not the user path. Step-by-step fixture setup, workspace checks, persistence, optional omp acceptance and regression commands.
 - [Milestone 1](docs/milestone-1.md): user journey, acceptance checks, pilot boundaries, and open inputs.
 - [Synthetic fixture](fixtures/README.md): nonproprietary build/test fixture for Milestone 1A evidence.
 - [Workspace identity](identity/README.md): bounded checkout-derived identity helper (M1-04).

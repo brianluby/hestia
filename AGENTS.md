@@ -2,7 +2,8 @@
 
 Hestia is currently a scaffold. Read the [architecture](docs/architecture.md) and [roadmap](docs/roadmap.md) before changing scope.
 
-- Prefer the smallest straightforward solution. Use Compose and mise directly; do not add a custom CLI, orchestration framework, or specification machinery without a demonstrated need.
+- Prefer the smallest straightforward solution. Users get one thin `hestia` launcher over Compose, mise and the existing helpers ([ADR-006](docs/architecture.md#adr-006-three-step-start)). Do not grow it into a CLI framework, orchestration framework or specification machinery.
+- Protect the three-step start: install, run `hestia`, talk to the agent. Any change that adds a required user step, flag, path or environment variable needs a demonstrated need and an update to M1-10.
 - Preserve one canonical image/build path. Keep optional capabilities out of the minimal base.
 - Back technical claims with primary sources or observed results. Distinguish intentions from implemented and verified behavior; do not invent dependencies, version pins, platform support, or commands.
 - Verify the behavior you change. Record the platform, actions, and actual results. For scaffold-only changes, check structure, documentation links, ignore rules, and Git status; do not install dependencies or build containers merely to validate prose.

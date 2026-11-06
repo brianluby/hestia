@@ -15,9 +15,14 @@ The [Milestone 1 spec](milestone-1.md) defines requirements M1-01 through M1-09 
 - Validate deterministic identities for matching directory names and worktrees, path-consistent Git metadata mounts, and synthetic state persistence. These fundamentals must precede later concurrency proofs.
 - Native omp/LiteLLM fixture authentication, assisted changes and saved-session resume after recreation pass the linked proof. Bedrock authentication remains unverified. No employer source or credentials were used.
 
+### 1A+. Three-step start
+
+- Implement [ADR-006](architecture.md#adr-006-three-step-start): the `hestia` launcher, pi as the default agent, a shared agent login, launch-scoped mise trust, and the declared toolchain installed on first start.
+- Pass M1-10 on the Mac with a real (non-fixture) repository before starting the Argus pilot, so the pilot tests the product users will actually get.
+
 ### 1B. Argus on the employer work laptop
 
-- Confirm laptop OS/CPU/runtime and Argus toolchain/build/test/service requirements there; omp/Bedrock is the selected first agent integration.
+- Confirm the laptop's OS, CPU and runtime, plus Argus's toolchain, build/test and service requirements. Run the pilot through the three-step start, using pi with Bedrock through ambient AWS credentials. omp remains opt-in.
 - Use the real agent to make a reviewable change, build/test Argus, remove/recreate the workspace, resume selected state and build/test again.
 - Keep source, credentials, employer-specific configuration and detailed evidence on the work laptop. Share only sanitized outcomes appropriate for Hestia documentation.
 - If this laptop uses Windows/WSL2, exercise its pilot path now. The broader matrix in Milestone 5 is additional coverage.
@@ -45,4 +50,4 @@ Milestone 1 closes only after the Argus journey and M1 requirements pass. The na
 - Repeat the single-repository, concurrent-project, worktree, and backup/restore proofs on an actual Windows/WSL2 host using the same canonical build definition, not a platform fork. Expand any Windows evidence already collected during the Argus pilot.
 - Record the runtime, CPU architecture, source filesystem placement, path/permission behavior, and any limitations. Verify architecture-specific dependencies and builds for the tested host architectures; claim support only for the matrix exercised.
 
-Browser IDE and voice input remain optional future considerations, not milestones or prerequisites for this sequence. A custom CLI and agent orchestration are outside the initial scope.
+Browser IDE and voice input remain optional future considerations, not milestones or prerequisites for this sequence. Beyond the thin `hestia` launcher, a CLI framework and agent orchestration are outside the initial scope.
