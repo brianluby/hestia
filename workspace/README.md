@@ -11,19 +11,26 @@ Compose file for `docker compose -f ... run workspace ...`.
 `hestia [<checkout-path>] [-- <agent args>...]` at the repository root
 (ADR-006 step 2) runs the steps below for you: it builds `hestia-pi:local` from
 the `pi` target if that image is missing (never pulls or rebuilds it), generates
-`<state-root>/<workspace-id>.compose.yaml` with `--state pi` and
+`<state-root>/<workspace-id>.compose.yaml` with `--shared-state pi` and
 `MISE_TRUSTED_CONFIG_PATHS=<checkout>` (trusting only that checkout's mise
 configuration). The file sits beside the state directory, not in it, because
 that directory is writable from the container. It then runs
-`workspace-lifecycle.sh start` (a no-op while running) and `attach <file> pi`. It prints the `wrote <file>` line, and the same file works
-with the lifecycle helpers. Symlink it onto `PATH`; it resolves its own
-location. Tested by [hestia-launcher.test.sh](../tests/hestia-launcher.test.sh).
+`workspace-lifecycle.sh start` (a no-op while running) and `attach <file> pi`.
+It prints the `wrote <file>` line, and the same file works with the lifecycle
+helpers. Symlink it onto `PATH`; it resolves its own
+location. `--shared-state pi` binds one `<state-root>/shared/pi` at `~/.pi` in
+every workspace, so `/login` happens once per user; sessions stay per checkout
+because pi keys them by working directory and Hestia keeps checkout paths.
+Workspaces created before this change keep their old `<workspace-id>/pi`
+directory, which is no longer mounted (log in again; nothing is migrated).
+Tested by [hestia-launcher.test.sh](../tests/hestia-launcher.test.sh).
 
 ## Usage
 
 ```sh
 workspace/workspace-compose.sh [--image IMG] [--out FILE] \
-  [--state NAME[:CONTAINER_PATH]]... [--env NAME=VALUE]... <checkout-path>
+  [--state NAME[:CONTAINER_PATH]]... [--shared-state NAME[:CONTAINER_PATH]]... \
+  [--env NAME=VALUE]... <checkout-path>
 docker compose -f <file> run --rm workspace <command>   # one-off command
 workspace/workspace-lifecycle.sh start <file>           # persistent workspace
 ```
@@ -180,6 +187,19 @@ binds from the workspace state directory
 survives stop/remove-runtime/recreate like all durable state; `clear-caches`
 never touches it.
 
+`--shared-state NAME[:CONTAINER_PATH]` (repeatable) is the same, except the
+source is `<state-root>/shared/NAME`, one directory for every workspace that
+asks for it (ADR-006: one login per user). It reuses the `--state` name and
+target validation and shares its target namespace, so a shared and a
+per-workspace spec cannot take one path. Workspace ids start with `hestia-`, so
+`shared` never collides with a workspace's state directory. Only that
+directory is bound, not the state root: a container still cannot see other
+workspaces' state. Bind the directory, never a single file such as `auth.json`
+(a file bind breaks atomic rename writes, see the omp settings note above).
+Anything in a shared directory is readable and writable by every workspace using it,
+credentials included, and is not part of any one workspace's backup. Like
+`--state`, either flag replaces the omp default.
+
 That mount is an ordinary `--state` spec, not omp-specific wiring. A repeatable
 `--state NAME[:CONTAINER_PATH]` binds `<state-root>/<workspace-id>/NAME` at
 `CONTAINER_PATH`, defaulting to `/home/dev/.NAME` — so another harness gets its
@@ -231,8 +251,8 @@ none changes the omp default, ships a provider policy or sandboxes its tools:
 
 | Target / binary | What it is | State |
 | --- | --- | --- |
-| `pi` → `pi` | Upstream [Pi](https://github.com/earendil-works/pi) v1.4.0, its own Bun-compiled release binary | `--state pi` (`~/.pi`) |
-| `pi-bolt` → `pi-bolt` | [Pi-Bolt](https://github.com/opensec-git/Pi-Bolt) 1.0.2: Pi 1.4.0 compiled ahead of time; young and experimental | `--state pi` (`~/.pi`, shared with Pi by design) |
+| `pi` → `pi` | Upstream [Pi](https://github.com/earendil-works/pi) v1.4.0, its own Bun-compiled release binary | `--shared-state pi` (`~/.pi`, one per user) |
+| `pi-bolt` → `pi-bolt` | [Pi-Bolt](https://github.com/opensec-git/Pi-Bolt) 1.0.2: Pi 1.4.0 compiled ahead of time; young and experimental | `--shared-state pi` (`~/.pi`, shared with Pi by design) |
 | `claude-code` → `claude` | Anthropic's [Claude Code](https://github.com/anthropics/claude-code) 2.1.308 (the `stable` tag), the native linux-arm64 binary from npm | `--state claude` (`~/.claude`) |
 
 Build with `docker build --target <target> -t hestia-<target>:<tag> .`, then

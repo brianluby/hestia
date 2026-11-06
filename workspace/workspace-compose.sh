@@ -2,7 +2,7 @@
 # JP73P2D — generate a scoped Compose workspace definition for one checkout.
 #
 # usage: workspace-compose.sh [--image IMG] [--out FILE] [--state SPEC]...
-#                            [--env NAME=VALUE]... <checkout-path>
+#                            [--shared-state SPEC]... [--env NAME=VALUE]... <checkout-path>
 #
 # Emits a Compose file (stdout, or --out) whose single `workspace` service
 # binds exactly:
@@ -29,6 +29,14 @@
 #     can also reach the other agents' state under it: --state chooses where
 #     the harness is pointed, not what is reachable. One workspace variant per
 #     checkout is the supported model (ADR-003).
+#   - one user-wide agent-state directory per --shared-state NAME[:CONTAINER_PATH]:
+#     <state-root>/shared/NAME (not under any workspace's state directory;
+#     workspace ids always start with 'hestia-', so 'shared' cannot collide),
+#     bound at CONTAINER_PATH (default /home/dev/.NAME) in every workspace that
+#     asks for it — ADR-006's one login per user. NAME and the target follow the
+#     --state rules exactly and share its target namespace. Only that directory
+#     is bound, never the whole state root, so other workspaces' state stays
+#     out of reach. Like --state, any --shared-state replaces the omp default.
 # --env NAME=VALUE adds one service environment variable for an agent that
 # loads, say, a policy overlay by variable; names the generator owns are
 # refused rather than silently emitted twice, and a name given twice is
@@ -57,7 +65,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 wid="$here/identity/workspace-id.sh"
 
 usage() {
-	echo "usage: workspace-compose.sh [--image IMG] [--out FILE] [--state NAME[:CONTAINER_PATH]]... [--env NAME=VALUE]... <checkout-path>" >&2
+	echo "usage: workspace-compose.sh [--image IMG] [--out FILE] [--state NAME[:CONTAINER_PATH]]... [--shared-state NAME[:CONTAINER_PATH]]... [--env NAME=VALUE]... <checkout-path>" >&2
 	exit 2
 }
 
@@ -73,6 +81,7 @@ fail() {
 image="hestia-fixture-tools:2026-09-09"
 out=""
 state_specs=()
+shared_specs=()
 env_extra=()
 while [ "$#" -gt 0 ]; do
 	case "$1" in
@@ -89,7 +98,7 @@ while [ "$#" -gt 0 ]; do
 		out="$2"
 		shift 2
 		;;
-	--state)
+	--state | --shared-state)
 		# NAME or NAME:CONTAINER_PATH. NAME is a plain subdirectory name, so
 		# by construction the state stays inside the workspace state
 		# directory and cannot be pointed at the checkout or the image.
@@ -98,11 +107,11 @@ while [ "$#" -gt 0 ]; do
 		name="${spec%%:*}"
 		reject_unsafe_value "$name" "state name"
 		printf '%s' "$name" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9_-]*$' ||
-			fail "--state expects NAME or NAME:CONTAINER_PATH, with NAME limited to letters, digits, _ and - : $spec"
+			fail "$1 expects NAME or NAME:CONTAINER_PATH, with NAME limited to letters, digits, _ and - : $spec"
 		case "$spec" in
-		*:*) assert_safe_path "${spec#*:}" "container path in --state $name" ;;
+		*:*) assert_safe_path "${spec#*:}" "container path in $1 $name" ;;
 		esac
-		state_specs+=("$spec")
+		if [ "$1" = --state ]; then state_specs+=("$spec"); else shared_specs+=("$spec"); fi
 		shift 2
 		;;
 	--env)
@@ -134,9 +143,10 @@ done
 [ "$#" -eq 1 ] || usage
 checkout="$1"
 
-# Default agent state is omp's ~/.omp (XJVWF4K). Any --state above replaces it,
-# so a workspace generated for another harness does not inherit an omp bind.
-if [ "${#state_specs[@]}" -eq 0 ]; then
+# Default agent state is omp's ~/.omp (XJVWF4K). Any --state or --shared-state
+# above replaces it, so a workspace generated for another harness does not
+# inherit an omp bind.
+if [ "${#state_specs[@]}" -eq 0 ] && [ "${#shared_specs[@]}" -eq 0 ]; then
 	state_specs=("omp:/home/dev/.omp")
 fi
 
@@ -271,7 +281,9 @@ state_reserved=(
 	/opt/hestia
 )
 state_targets=()
-for spec in "${state_specs[@]}"; do
+# Shared specs go through the same checks and the same target namespace, so a
+# shared and a per-workspace spec cannot take one path.
+for spec in ${state_specs[@]+"${state_specs[@]}"} ${shared_specs[@]+"${shared_specs[@]}"}; do
 	target="$(state_target "$spec")"
 	# Compose path-cleans a target, so '/' duplication or a '.'/'..' segment
 	# would land the bind elsewhere and slip past the comparison below: with
@@ -282,18 +294,18 @@ for spec in "${state_specs[@]}"; do
 	# "destination can't be '/'" after the file is written).
 	case "$target" in
 	/ | *//* | */./* | */../* | */. | */..)
-		fail "--state container path must be a plain absolute path with no '.', '..' or empty segments: $target"
+		fail "state container path (--state or --shared-state) must be a plain absolute path with no '.', '..' or empty segments: $target"
 		;;
 	esac
 	for b in "${state_reserved[@]}" ${state_targets[@]+"${state_targets[@]}"}; do
 		case "$target" in
 		"$b" | "$b"/*)
-			fail "--state target '$target' repeats or lies inside '$b', a generated or image-owned path; give each state its own container directory"
+			fail "state target (--state or --shared-state) '$target' repeats or lies inside '$b', a generated or image-owned path; give each state its own container directory"
 			;;
 		esac
 		case "$b" in
 		"$target"/*)
-			fail "--state target '$target' would hide '$b', a generated or image-owned path; give each state its own container directory"
+			fail "state target (--state or --shared-state) '$target' would hide '$b', a generated or image-owned path; give each state its own container directory"
 			;;
 		esac
 	done
@@ -309,8 +321,11 @@ fi
 "$wid" --state-dir "$state_dir" "$checkout" >/dev/null 2>&1 ||
 	fail "state identity check failed for $state_dir — it may be recorded for a different checkout; inspect $state_dir/identity.record, then reattach or rehome the state explicitly"
 
-for spec in "${state_specs[@]}"; do
+for spec in ${state_specs[@]+"${state_specs[@]}"}; do
 	mkdir -p "$state_dir/${spec%%:*}"
+done
+for spec in ${shared_specs[@]+"${shared_specs[@]}"}; do
+	mkdir -p "$state_root/shared/${spec%%:*}"
 done
 
 # YAML single-quote escaping plus literal-dollar doubling: Compose applies
@@ -340,9 +355,14 @@ emit() {
 		echo "        source: '$(sq "$b")'"
 		echo "        target: '$(sq "$b")'"
 	done
-	for s in "${state_specs[@]}"; do
+	for s in ${state_specs[@]+"${state_specs[@]}"}; do
 		echo "      - type: bind"
 		echo "        source: '$(sq "$state_dir/${s%%:*}")'"
+		echo "        target: '$(sq "$(state_target "$s")")'"
+	done
+	for s in ${shared_specs[@]+"${shared_specs[@]}"}; do
+		echo "      - type: bind"
+		echo "        source: '$(sq "$state_root/shared/${s%%:*}")'"
 		echo "        target: '$(sq "$(state_target "$s")")'"
 	done
 	echo "      - linux-caches:$cache_dir"

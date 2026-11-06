@@ -111,13 +111,13 @@ Tests use unique disposable identities and synthetic storage, never production r
 This amends earlier decisions:
 
 - **Default agent is upstream Pi** (the `pi` target). omp, PiG and Claude Code stay opt-in images. Pi supports Bedrock through ambient AWS credentials, so Bedrock remains available to the Argus pilot.
-- **Login once per user, not once per repository** (amends ADR-004). One Hestia-owned agent home (not the host home) is bound into every workspace. Pi stores credentials in `~/.pi/agent/auth.json` and keys sessions by working directory. Hestia preserves checkout paths, so sessions stay per checkout. Concurrent token refresh across workspaces is unverified.
+- **Login once per user, not once per repository** (amends ADR-004). One Hestia-owned agent home (not the host home) is bound into every workspace. Pi stores credentials in `~/.pi/agent/auth.json` and keys sessions by working directory. Hestia preserves checkout paths, so sessions stay per checkout. Pi 1.5.0 source serializes `auth.json` and `settings.json` writes with a `proper-lockfile` lock and re-checks an OAuth token under that lock before refreshing; the 1.4.0 image binary contains the same code. Two workspaces refreshing at once has not been run, and the lock is a directory made with `mkdir` on a bind mount, which is unverified across containers on Docker Desktop.
 - **Launching a checkout trusts that checkout's mise configuration**, and nothing else (amends ADR-003). Running `hestia` in a repository is the user's consent. Trust is scoped to that path and survives recreation.
 - **The first start installs the toolchain the checkout declares** into a persistent, rebuildable tool cache, then reuses it (amends ADR-003 "startup installs no tools"). Later starts install only after declarations change. Startup never silently upgrades installed tools.
 
 Prebuilt published images, desktop installers and agent choice prompts are deferred until the local build path proves too slow or too hard.
 
-**Consequences:** the first launch is slow (image build and toolchain install). A repository's mise configuration runs with the user's consent but without a separate review step. A shared agent login means every workspace can use that credential. Identity, mounts, persistence and lifecycle contracts are unchanged.
+**Consequences:** the first launch is slow (image build and toolchain install). A repository's mise configuration runs with the user's consent but without a separate review step. A shared agent home means every workspace can use that credential. It also means an agent in one workspace can change settings or install extensions that run in every other workspace. Identity, mounts, persistence and lifecycle contracts are unchanged.
 
 ## Remaining implementation choices
 
