@@ -22,8 +22,6 @@ while [ -L "$src" ]; do
 done
 here="$(cd -P "$(dirname "$src")" && pwd)"
 
-image="$("$here/workspace/image-tag.sh")"
-
 fail() {
 	echo "hestia: error: $*" >&2
 	exit 1
@@ -53,6 +51,7 @@ workspace_id="$(printf '%s\n' "$ids" | sed -n 's/^workspace: //p')"
 # container, and an agent must not be able to edit the file the host runs.
 compose="${HESTIA_STATE_ROOT:-$HOME/.local/share/hestia}/$workspace_id.compose.yaml"
 
+image="$("$here/workspace/image-tag.sh")" || fail "cannot compute the image tag"
 if ! docker image inspect "$image" >/dev/null 2>&1; then
 	echo "hestia: first run — building $image (this takes a few minutes)" >&2
 	docker build --platform linux/arm64 --target pi -t "$image" "$here"
