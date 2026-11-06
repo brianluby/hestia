@@ -76,7 +76,7 @@ Keep Git authentication separate: use a scoped credential helper or supported SS
 
 **Consequences:** some workspaces need separate login. Deliberate credential sharing can follow a demonstrated need. Agents can access credentials supplied to them; containerization adds no separate protection against that authorized access. Logout/revocation must preserve source and unrelated sessions. Back up useful state; prefer reauthentication on restore. If required state mixes credentials with sessions, treat its backup as sensitive and encrypt it. Full backup/restore follows the pilot.
 
-The selected integration is omp with AWS Bedrock. `~/.omp` is workspace-scoped writable state; root-owned `/opt/hestia/omp/config.yml` loads through `PI_CONFIG_FILES` after global/project settings and before runtime overrides. This upstream overlay mechanism replaces the read-only settings bind that broke atomic settings writes. It is not a security boundary against control of the process environment or runtime overrides. Settings persistence is exercised; real Bedrock credential-chain use remains unverified. The explicit LiteLLM attach opt-in passes authenticated fixture edits, recreation and native saved-session resume; see the [native LiteLLM fixture proof](m1-apple-silicon-evidence-v2.md).
+[ADR-006](#adr-006-three-step-start) makes upstream Pi the default agent, with one login per user. The rest of this section describes the opt-in omp integration. `~/.omp` is workspace-scoped writable state; root-owned `/opt/hestia/omp/config.yml` loads through `PI_CONFIG_FILES` after global/project settings and before runtime overrides. This upstream overlay mechanism replaces the read-only settings bind that broke atomic settings writes. It is not a security boundary against control of the process environment or runtime overrides. Settings persistence is exercised; real Bedrock credential-chain use remains unverified. The explicit LiteLLM attach opt-in passes authenticated fixture edits, recreation and native saved-session resume; see the [native LiteLLM fixture proof](m1-apple-silicon-evidence-v2.md).
 
 ## ADR-005: Lifecycle preserves work
 
@@ -96,11 +96,35 @@ The selected integration is omp with AWS Bedrock. `~/.omp` is workspace-scoped w
 
 Tests use unique disposable identities and synthetic storage, never production resources. Cache clearing must leave source/Git and selected durable state unchanged.
 
+## ADR-006: Three-step start
+
+**Status: Accepted requirement 2026-10; not implemented.** A product review found that reaching an agent prompt took about ten expert steps (build, generate, validate, start, attach, trust, toolchain, login), and had no supported path to a real repository's toolchain. The architecture above stays; the user no longer assembles it.
+
+**Decision:** the user journey is at most three steps after Docker is installed:
+
+1. Install Hestia with one copy-paste command that puts `hestia` on `PATH`.
+2. Run `hestia` in any checkout (or `hestia <path>`).
+3. Tell the agent what to do. The first run of the agent also asks for its native login (pi `/login`).
+
+`hestia` is one thin launcher script over the existing helpers, not a CLI framework. Each run resolves the checkout, builds the default image if it is missing, writes the generated Compose file into the workspace state directory, starts the workspace when it is stopped, and opens the agent in the checkout. Running it again re-attaches. Expert operations stay in the existing helpers, which use the same generated file.
+
+This amends earlier decisions:
+
+- **Default agent is upstream Pi** (the `pi` target). omp, PiG and Claude Code stay opt-in images. Pi supports Bedrock through ambient AWS credentials, so Bedrock remains available to the Argus pilot.
+- **Login once per user, not once per repository** (amends ADR-004). One Hestia-owned agent home (not the host home) is bound into every workspace. Pi stores credentials in `~/.pi/agent/auth.json` and keys sessions by working directory. Hestia preserves checkout paths, so sessions stay per checkout. Concurrent token refresh across workspaces is unverified.
+- **Launching a checkout trusts that checkout's mise configuration**, and nothing else (amends ADR-003). Running `hestia` in a repository is the user's consent. Trust is scoped to that path and survives recreation.
+- **The first start installs the toolchain the checkout declares** into a persistent, rebuildable tool cache, then reuses it (amends ADR-003 "startup installs no tools"). Later starts install only after declarations change. Startup never silently upgrades installed tools.
+
+Prebuilt published images, desktop installers and agent choice prompts are deferred until the local build path proves too slow or too hard.
+
+**Consequences:** the first launch is slow (image build and toolchain install). A repository's mise configuration runs with the user's consent but without a separate review step. A shared agent login means every workspace can use that credential. Identity, mounts, persistence and lifecycle contracts are unchanged.
+
 ## Remaining implementation choices
 
 - User/work laptop: OS/CPU, available runtime and Argus build/tests/services. Argus remains employer-local.
 - Provider acceptance: the native LiteLLM fixture journey passes; real Bedrock credentials/login/refresh and employer-local agent configuration remain unverified. The existing default overlay and separate Git authentication remain.
-- Later: project-specific tools/services beyond fixture Go, backup mechanism and broader Windows/WSL2 matrix. No broader support/performance claims are established here.
+- ADR-006 launcher: install command and location, shared agent-home layout, the tool-cache volume, and checks for concurrent login refresh.
+- Later: project services, backup mechanism and broader Windows/WSL2 matrix. No broader support/performance claims are established here.
 
 ## Primary references
 

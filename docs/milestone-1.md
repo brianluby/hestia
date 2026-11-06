@@ -25,11 +25,17 @@ Passing 1A permits pilot integration. Milestone 1 is complete only when 1B passe
 
 ## User journey
 
-1. Select an existing checkout and agent. Inspect resolved source/Git paths, workspace identity, persistent state, effective mounts and any published ports.
-2. Explicitly build declared tools. Start the workspace without automatic tool installation/upgrades.
-3. Attach a terminal, authenticate the selected agent through its supported flow and configure Git access separately. Invoke the agent directly.
-4. Make a reviewable change, run the normal build/tests and confirm host tools see the source changes. Committing or publishing is not required for pilot acceptance.
-5. Finish active commands, snapshot source/Git and selected session state, remove and recreate the container. Compare durable state before resuming the session and rerunning build/tests.
+With Docker already installed, the user takes three steps ([ADR-006](architecture.md#adr-006-three-step-start)):
+
+1. Install Hestia with one copy-paste command.
+2. Run `hestia` in an existing checkout.
+3. Tell pi what to do. On first use only, sign in with pi's `/login`.
+
+The user does not set file paths, environment variables, image tags or flags, and does not run trust or toolchain commands. Inspection and lifecycle helpers stay available but are not required.
+
+## Acceptance procedure
+
+Testers, not users, also verify durability: the agent makes a reviewable change and the normal build/tests pass; host tools see the change; then the tester snapshots source/Git and session state, recreates the container, compares durable state, and resumes the session and build/tests.
 
 ## User stories
 
@@ -50,6 +56,7 @@ Passing 1A permits pilot integration. Milestone 1 is complete only when 1B passe
 | M1-06 | Lifecycle and persistence | Snapshot source bytes, index/tree identity, branch/HEAD, status including untracked files and selected state. Recreate with a different container ID; require zero unintended durable differences before resumed work. Build/tests pass again. |
 | M1-07 | Native agent authentication and sessions | Document state paths/sensitivity, login/refresh and separate Git access. Complete an agent-assisted change, recreate and resume the saved session or documented native equivalent. No replacement permission engine or credential values in logs, images, tracked config or generated Compose. |
 | M1-08 | Scoped cache clearing | In disposable fixture storage, clear only that workspace's classified caches. Source/Git and durable state remain unchanged; regeneration and build/tests succeed. No global prune or production resource identity. |
+| M1-10 | Three-step start | Starting with a Mac that has only Docker installed, a tester who has not read the docs beyond the README quick start installs Hestia, runs `hestia` in a non-fixture repository with a mise declaration, and has pi make and build/test a change in no more than three steps. Record the commands typed, every prompt answered and the time to the first agent prompt (cold and warm). A second repository needs no new login. |
 | M1-09 | Actionable failures | Missing checkout, inaccessible metadata, unwritable state, conflicting identity/port or missing required tool yields a clear error. Missing/expired auth blocks the agent with documented recovery while leaving shell/source available. Failed downloads do not replace a working image or modify source/state. |
 
 ## Verification and success measures
@@ -62,13 +69,11 @@ Record platform/runtime/tool versions, image/container IDs, commands, exit codes
 
 ## Scope limits and follow-ups
 
-- No custom CLI or agent supervisor: use Compose and small necessary helpers.
+- One thin `hestia` launcher (ADR-006), with no CLI framework or agent supervisor. Underneath, Compose and the existing helpers do the work.
 - No GUI/voice implementation: preserve the shared-build extension point without delaying terminal use.
-- No all-agent matrix: validate one integration before expanding.
+- No all-agent matrix: pi is the default; validate it before expanding.
 - No complete backup system or destructive reset automation: preserve data now; restoration follows in Milestone 4.
 - Full simultaneous project/worktree workloads and platform matrix expand later; identity and metadata fundamentals are required now.
-
-Nice-to-have: concise task aliases after underlying operations work. They do not gate acceptance.
 
 ## Open inputs and sequence
 
