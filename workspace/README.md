@@ -9,8 +9,8 @@ Compose file for `docker compose -f ... run workspace ...`.
 ## Quick start (launcher)
 
 `hestia [<checkout-path>] [-- <agent args>...]` at the repository root
-(ADR-006 step 2) runs the steps below for you: it builds `hestia-pi:local` from
-the `pi` target if that image is missing (never pulls or rebuilds it), generates
+(ADR-006 step 2) runs the steps below for you: it builds `hestia-pi:<hash>` from
+the `pi` target if that image is missing (never pulls), generates
 `<state-root>/<workspace-id>.compose.yaml` with `--shared-state pi` and
 `MISE_TRUSTED_CONFIG_PATHS=<checkout>` (trusting only that checkout's mise
 configuration), `MISE_DATA_DIR=/hestia/cache/mise` and
@@ -19,7 +19,15 @@ the state directory, not in it, because that directory is writable from the
 container. It then runs `workspace-lifecycle.sh start` (a no-op while running),
 installs the tools the checkout declares (below) and runs `attach <file> pi`.
 It prints the `wrote <file>` line, and the same file works with the lifecycle
-helpers. Symlink it onto `PATH`; it resolves its own location. `--shared-state pi` binds one `<state-root>/shared/pi` at `~/.pi` in
+helpers. `install.sh` at the repository root symlinks it onto `PATH`; it resolves its own location.
+`<hash>` comes from [`image-tag.sh`](image-tag.sh): the Dockerfile plus every path the
+`pi` target's stages COPY (`fixtures/synthetic`, `agent/nono`). After a `git pull`
+that changes them the next launch builds the new tag once, and `start` recreates
+the workspace container on it (Compose sees a different image; the cache volume
+with installed tools, the state directory and the shared pi home carry over).
+Unchanged inputs never rebuild. Older `hestia-pi:*` tags are not deleted. Tested by
+[hestia-image-tag.test.sh](../tests/hestia-image-tag.test.sh) and
+[install.test.sh](../tests/install.test.sh). `--shared-state pi` binds one `<state-root>/shared/pi` at `~/.pi` in
 every workspace, so `/login` happens once per user; sessions stay per checkout
 because pi keys them by working directory and Hestia keeps checkout paths.
 Workspaces created before this change keep their old `<workspace-id>/pi`

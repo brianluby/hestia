@@ -3,12 +3,14 @@
 #
 # usage: hestia [<checkout-path>] [-- <agent args>...]
 #
-# Builds the default pi image if it is missing, writes the workspace's Compose
-# file beside its state directory, starts the workspace (a no-op when it already
-# runs), installs any tools the checkout declares that are missing and opens pi
-# in the checkout. Running it again re-attaches. Expert operations stay in
-# workspace/workspace-lifecycle.sh against the file named on the "wrote <file>"
-# line.
+# Builds the default pi image if it is missing (its tag hashes the build inputs,
+# see workspace/image-tag.sh: a `git pull` that changes them builds a new image
+# once, and older tags stay until you remove them), writes the workspace's
+# Compose file beside its state directory, starts the workspace (a no-op when it
+# already runs), installs any tools the checkout declares that are missing and
+# opens pi in the checkout. Running it again re-attaches. Expert operations
+# stay in workspace/workspace-lifecycle.sh against the file named on the
+# "wrote <file>" line.
 set -euo pipefail
 
 # Follow symlinks so a `hestia` linked onto PATH still finds the install.
@@ -20,7 +22,7 @@ while [ -L "$src" ]; do
 done
 here="$(cd -P "$(dirname "$src")" && pwd)"
 
-image="hestia-pi:local"
+image="$("$here/workspace/image-tag.sh")"
 
 fail() {
 	echo "hestia: error: $*" >&2
