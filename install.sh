@@ -33,15 +33,19 @@ if [ -z "$dir" ]; then
 fi
 
 link="$dir/hestia"
-# Replace only our own link, even a dangling one from a moved clone.
+# Replace only a link that provably points at a Hestia launcher: one sitting in
+# a clone that has Hestia's helpers beside it. A name ending in /hestia proves
+# nothing, and a dangling link cannot be checked, so both are refused.
 if [ -e "$link" ] || [ -L "$link" ]; then
-	case "$(readlink "$link" || true)" in
-	*/hestia) ;;
-	*)
-		echo "install: $link already exists and is not a Hestia link; not touching it. Remove it and re-run." >&2
+	target="$(readlink "$link" || true)"
+	case "$target" in /*) ;; *) target="$dir/$target" ;; esac
+	owner="$(dirname "$target")"
+	if ! { [ -L "$link" ] && [ "$(basename "$target")" = hestia ] && [ -f "$target" ] &&
+		[ -f "$owner/install.sh" ] && [ -f "$owner/identity/workspace-id.sh" ] &&
+		[ -f "$owner/workspace/workspace-lifecycle.sh" ]; }; then
+		echo "install: $link already exists and is not a link to a Hestia clone; not touching it. Remove it and re-run." >&2
 		exit 1
-		;;
-	esac
+	fi
 fi
 ln -sfn "$here/hestia" "$link"
 echo "installed $link -> $here/hestia"

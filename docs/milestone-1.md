@@ -25,7 +25,7 @@ Passing 1A permits pilot integration. Milestone 1 is complete only when 1B passe
 
 ## User journey
 
-With Docker already installed, the user takes three steps ([ADR-006](architecture.md#adr-006-three-step-start)):
+With Docker and Git already installed, the user takes three steps ([ADR-006](architecture.md#adr-006-three-step-start)):
 
 1. Install Hestia with one copy-paste command.
 2. Run `hestia` in an existing checkout.
@@ -56,7 +56,7 @@ Testers, not users, also verify durability: the agent makes a reviewable change 
 | M1-06 | Lifecycle and persistence | Snapshot source bytes, index/tree identity, branch/HEAD, status including untracked files and selected state. Recreate with a different container ID; require zero unintended durable differences before resumed work. Build/tests pass again. |
 | M1-07 | Native agent authentication and sessions | Document state paths/sensitivity, login/refresh and separate Git access. Complete an agent-assisted change, recreate and resume the saved session or documented native equivalent. No replacement permission engine or credential values in logs, images, tracked config or generated Compose. |
 | M1-08 | Scoped cache clearing | In disposable fixture storage, clear only that workspace's classified caches. Source/Git and durable state remain unchanged; regeneration and build/tests succeed. No global prune or production resource identity. |
-| M1-10 | Three-step start | Starting with a Mac that has only Docker installed, a tester who has not read the docs beyond the README quick start installs Hestia, runs `hestia` in a non-fixture repository with a mise declaration, and has pi make and build/test a change in no more than three steps. Record the commands typed, every prompt answered and the time to the first agent prompt (cold and warm). A second repository needs no new login. |
+| M1-10 | Three-step start | Starting with a Mac that has only Docker and Git installed, a tester who has not read the docs beyond the README quick start installs Hestia, runs `hestia` in a non-fixture repository with a mise declaration, and has pi make and build/test a change in no more than three steps. Record the commands typed, every prompt answered and the time to the first agent prompt (cold and warm). A second repository needs no new login. |
 | M1-09 | Actionable failures | Missing checkout, inaccessible metadata, unwritable state, conflicting identity/port or missing required tool yields a clear error. Missing/expired auth blocks the agent with documented recovery while leaving shell/source available. Failed downloads do not replace a working image or modify source/state. |
 
 ## Verification and success measures

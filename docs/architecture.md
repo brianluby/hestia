@@ -100,7 +100,7 @@ Tests use unique disposable identities and synthetic storage, never production r
 
 **Status: Accepted requirement 2026-10; installer, launcher and first-start toolchain install implemented; shared-login concurrency, a real interactive session and the M1-10 tester run pending.** A product review found that reaching an agent prompt took about ten expert steps (build, generate, validate, start, attach, trust, toolchain, login), and had no supported path to a real repository's toolchain. The architecture above stays; the user no longer assembles it.
 
-**Decision:** the user journey is at most three steps after Docker is installed:
+**Decision:** the user journey is at most three steps once Docker and Git are installed:
 
 1. Install Hestia with one copy-paste command that puts `hestia` on `PATH` (`git clone` into `~/.hestia`, then `install.sh`, which symlinks the launcher into a `PATH` directory that is already writable without `sudo`, never edits shell profiles and never overwrites a file that is not its own link). Update with `git pull`.
 2. Run `hestia` in any checkout (or `hestia <path>`).
@@ -110,7 +110,7 @@ Tests use unique disposable identities and synthetic storage, never production r
 
 This amends earlier decisions:
 
-- **Default agent is upstream Pi** (the `pi` target). omp, PiG and Claude Code stay opt-in images. Pi supports Bedrock through ambient AWS credentials, so Bedrock remains available to the Argus pilot.
+- **Default agent is upstream Pi** (the `pi` target). omp, PiG and Claude Code stay opt-in images. Pi can use Bedrock through ambient AWS credentials, but the launcher forwards no host AWS credentials. Bedrock needs an explicit handoff such as `workspace/workspace-attach-aws.sh --profile <profile> <file> pi` against the launcher's Compose file. That handoff is unverified with pi.
 - **Login once per user, not once per repository** (amends ADR-004). One Hestia-owned agent home (not the host home) is bound into every workspace. Pi stores credentials in `~/.pi/agent/auth.json` and keys sessions by working directory. Hestia preserves checkout paths, so sessions stay per checkout. Pi 1.5.0 source serializes `auth.json` and `settings.json` writes with a `proper-lockfile` lock and re-checks an OAuth token under that lock before refreshing; the 1.4.0 image binary contains the same code. Two workspaces refreshing at once has not been run, and the lock is a directory made with `mkdir` on a bind mount, which is unverified across containers on Docker Desktop.
 - **Launching a checkout trusts that checkout's mise configuration**, and nothing else (amends ADR-003). Running `hestia` in a repository is the user's consent. Trust is scoped to that path and survives recreation.
 - **The first start installs the toolchain the checkout declares** into a persistent, rebuildable tool cache, then reuses it (amends ADR-003 "startup installs no tools"). Later starts install only after declarations change. Startup never silently upgrades installed tools. Implemented in the launcher: mise's data directory is `/hestia/cache/mise` on the workspace's `linux-caches` volume, the image's tools are read through mise's read-only `shared_install_dirs`, and an install failure warns without blocking the agent. Verified on mise 2026.9.4 with jq on macOS arm64 (see [workspace README](../workspace/README.md#quick-start-launcher)); Go and other toolchains, and offline starts, are not exercised.
