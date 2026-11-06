@@ -98,15 +98,15 @@ Tests use unique disposable identities and synthetic storage, never production r
 
 ## ADR-006: Three-step start
 
-**Status: Accepted requirement 2026-10; launcher and first-start toolchain install implemented; installer and shared-login concurrency checks pending.** A product review found that reaching an agent prompt took about ten expert steps (build, generate, validate, start, attach, trust, toolchain, login), and had no supported path to a real repository's toolchain. The architecture above stays; the user no longer assembles it.
+**Status: Accepted requirement 2026-10; installer, launcher and first-start toolchain install implemented; shared-login concurrency, a real interactive session and the M1-10 tester run pending.** A product review found that reaching an agent prompt took about ten expert steps (build, generate, validate, start, attach, trust, toolchain, login), and had no supported path to a real repository's toolchain. The architecture above stays; the user no longer assembles it.
 
 **Decision:** the user journey is at most three steps after Docker is installed:
 
-1. Install Hestia with one copy-paste command that puts `hestia` on `PATH`.
+1. Install Hestia with one copy-paste command that puts `hestia` on `PATH` (`git clone` into `~/.hestia`, then `install.sh`, which symlinks the launcher into a `PATH` directory that is already writable without `sudo`, never edits shell profiles and never overwrites a file that is not its own link). Update with `git pull`.
 2. Run `hestia` in any checkout (or `hestia <path>`).
 3. Tell the agent what to do. The first run of the agent also asks for its native login (pi `/login`).
 
-`hestia` is one thin launcher script over the existing helpers, not a CLI framework. Each run resolves the checkout, builds the default image if it is missing, writes the generated Compose file into the workspace state directory, starts the workspace when it is stopped, and opens the agent in the checkout. Running it again re-attaches. Expert operations stay in the existing helpers, which use the same generated file.
+`hestia` is one thin launcher script over the existing helpers, not a CLI framework. Each run resolves the checkout, builds the default image if it is missing (tagged by a hash of its build inputs, so a changed input rebuilds once and an unchanged one never does; old tags stay), writes the generated Compose file beside the workspace state directory (out of the container's reach), starts the workspace when it is stopped, and opens the agent in the checkout. Running it again re-attaches. Expert operations stay in the existing helpers, which use the same generated file.
 
 This amends earlier decisions:
 

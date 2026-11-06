@@ -16,15 +16,16 @@
 # that cannot install warns and still opens the agent.
 #
 # Needs a reachable Docker daemon, network access to GitHub on the first launch
-# (the jq download) and the default image hestia-pi:local (the launcher builds
-# it on first use; this test never builds it); prints SKIP and exits 0 when
+# (the jq download) and the default image (hestia-pi:<hash of the build inputs>,
+# see workspace/image-tag.sh; the launcher builds it on first use, this test never
+# builds it); prints SKIP and exits 0 when
 # Docker or the image is missing. The fixture lives under the user's home
 # (Docker-shared path on macOS).
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 life="$here/workspace/workspace-lifecycle.sh"
-image="hestia-pi:local"
+image="$("$here/workspace/image-tag.sh")"
 
 if ! command -v docker >/dev/null 2>&1; then
 	echo "SKIP: docker not installed"
@@ -39,7 +40,7 @@ if ! docker compose version >/dev/null 2>&1; then
 	exit 0
 fi
 if ! docker image inspect "$image" >/dev/null 2>&1; then
-	echo "SKIP: image $image not built (docker build --platform linux/arm64 --target pi -t $image .)"
+	echo "SKIP: image $image not built (run hestia once in any repository, or docker build --platform linux/arm64 --target pi -t $image .)"
 	exit 0
 fi
 

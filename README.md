@@ -2,17 +2,24 @@
 
 Hestia is a terminal-first development container project targeting Apple Silicon macOS and Windows through WSL2. The goal is reproducible toolchains and disposable containers without disposable work.
 
-**Status: fixture foundation implemented; Milestone 1 acceptance incomplete.** The synthetic Go fixture, checkout identity, canonical linux/arm64 image, scoped Compose generator, durable state, lifecycle/cache helpers and the optional agent layers (omp, PiG) have macOS arm64 evidence in the [evidence log](docs/evidence.md). omp settings persistence and the provider-policy overlay are exercised. Every agent image also carries the [nono](https://github.com/nolabs-ai/nono) sandbox CLI, and opt-in images add upstream Pi, Pi-Bolt and Claude Code; all of them build on the Mac, but no agent session has run under nono or in the new images. The [native LiteLLM fixture proof](docs/m1-apple-silicon-evidence-v2.md) verifies real assisted edits, recreation and saved-session resume; Bedrock authentication, PiG's authentication and sessions, Argus and Windows/WSL2 acceptance are pending. The three-step start below is a requirement: the `hestia` launcher exists (step 2); the shared login and the first-run toolchain install of a checkout's declared tools are implemented; the installer is not. Today the path still takes about ten expert steps (see the [runbook](docs/runbook.md)).
+**Status: fixture foundation implemented; Milestone 1 acceptance incomplete.** The synthetic Go fixture, checkout identity, canonical linux/arm64 image, scoped Compose generator, durable state, lifecycle/cache helpers and the optional agent layers (omp, PiG) have macOS arm64 evidence in the [evidence log](docs/evidence.md). omp settings persistence and the provider-policy overlay are exercised. Every agent image also carries the [nono](https://github.com/nolabs-ai/nono) sandbox CLI, and opt-in images add upstream Pi, Pi-Bolt and Claude Code; all of them build on the Mac, but no agent session has run under nono or in the new images. The [native LiteLLM fixture proof](docs/m1-apple-silicon-evidence-v2.md) verifies real assisted edits, recreation and saved-session resume; Bedrock authentication, PiG's authentication and sessions, Argus and Windows/WSL2 acceptance are pending. The three-step start ([ADR-006](docs/architecture.md#adr-006-three-step-start)) is implemented: `install.sh`, the `hestia` launcher, one shared pi login and the first-run install of a checkout's declared tools. Verified on macOS arm64 with scripted tests and a non-interactive `hestia -- --version` run; not yet verified: a real interactive pi session and `/login`, an agent change built and tested in a real repository, and the M1-10 run by someone who has only read this page. Today's [runbook](docs/runbook.md) is for verifying internals, not for getting started.
 
-## Target workflow: three steps
+## Quick start
 
-With Docker installed ([ADR-006](docs/architecture.md#adr-006-three-step-start)):
+Needs [Docker](https://docs.docker.com/get-started/get-docker/) running on Apple Silicon macOS (the only exercised platform). Nothing else, no `sudo`.
 
-1. **Install** Hestia with one copy-paste command.
-2. **Run `hestia`** in any repository. The first run builds the image and the repository's declared toolchain, then opens pi in a container that sees the same files as your host.
-3. **Tell pi what to do.** The first time, sign in with `/login`. The login carries over to every repository.
+1. **Install.** Clones Hestia to `~/.hestia` and links `hestia` into a directory already on your `PATH` (if none is writable it prints one line to add to your shell profile):
 
-Run `hestia` again to return to the workspace. Recreating the container keeps source changes, Git metadata and agent sessions; caches can be rebuilt. Expert controls (identity, mounts, lifecycle, sandboxing, provider handoffs) remain in the [workspace helpers](workspace/README.md). You never need them to get started.
+   ```sh
+   git clone https://github.com/brianluby/hestia.git ~/.hestia && ~/.hestia/install.sh
+   ```
+
+2. **Run `hestia` in a Git repository:** `cd <your-repo> && hestia`. The first run builds the image (43 s measured with no Docker cache and the Debian base already pulled; a first-ever build also pulls the base) and installs the tools your `mise.toml` or `.tool-versions` declares, then opens pi in a container that sees the same files as your host. Later runs reattach in a second or two.
+3. **Tell pi what to do.** The first time, sign in with `/login`; the login carries over to every repository.
+
+Update with `git -C ~/.hestia pull`. The next `hestia` builds a new image once if the build inputs changed and recreates the workspace container on it (stop active pi sessions first; source, sessions and installed tools are kept). Old `hestia-pi:*` images stay until you remove them with `docker rmi`.
+
+Recreating the container keeps source changes, Git metadata and agent sessions; caches can be rebuilt. Experts (identity, mounts, lifecycle, sandboxing, provider handoffs): [workspace helpers](workspace/README.md). You never need them to get started.
 
 ## Initial scope
 
