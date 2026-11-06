@@ -55,8 +55,9 @@ if ! docker image inspect "$image" >/dev/null 2>&1; then
 	docker build --platform linux/arm64 --target pi -t "$image" "$here"
 fi
 
-# Launching trusts exactly this checkout's mise configuration (ADR-006).
-"$here/workspace/workspace-compose.sh" --image "$image" --state pi \
+# Launching trusts exactly this checkout's mise configuration, and pi's home is
+# shared by every workspace so login happens once per user (ADR-006).
+"$here/workspace/workspace-compose.sh" --image "$image" --shared-state pi \
 	--env "MISE_TRUSTED_CONFIG_PATHS=$canonical" --out "$compose" "$canonical"
 "$here/workspace/workspace-lifecycle.sh" start "$compose"
 exec "$here/workspace/workspace-lifecycle.sh" attach "$compose" pi "$@"

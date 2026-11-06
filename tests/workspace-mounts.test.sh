@@ -249,6 +249,63 @@ fi
 [ ! -e "$root/fresh-state" ] && [ ! -e "$root/fresh.yaml" ] &&
 	ok "rejected target on a fresh state root wrote nothing" || bad "a rejected target on a fresh state root wrote state or a file"
 
+echo "== shared state (--shared-state, ADR-006) =="
+"$gen" --state codex --shared-state pi --out "$root/shared.yaml" "$repo" 2>/dev/null
+[ "$(grep -c 'type: bind' "$root/shared.yaml")" -eq 4 ] &&
+	grep -qx "        source: '$HESTIA_STATE_ROOT/shared/pi'" "$root/shared.yaml" &&
+	grep -qx "        target: '/home/dev/.pi'" "$root/shared.yaml" &&
+	ok "--shared-state NAME binds <state-root>/shared/NAME at ~/.NAME" || bad "shared bind wrong"
+[ -d "$HESTIA_STATE_ROOT/shared/pi" ] && ok "the shared state dir is created" || bad "shared state dir missing"
+# Only the one shared directory is bound, never the state root itself.
+if gen_bind_args "$root/shared.yaml" | grep -q "^$HESTIA_STATE_ROOT:"; then
+	bad "the whole state root is bound"
+else
+	ok "the state root itself is not bound"
+fi
+"$gen" --shared-state pi:/home/dev/.pi --out "$root/shared-only.yaml" "$repo" 2>/dev/null
+[ "$(grep -c 'type: bind' "$root/shared-only.yaml")" -eq 3 ] &&
+	! grep -Eq "target: '?/home/dev/\.omp'?$" "$root/shared-only.yaml" &&
+	ok "--shared-state alone replaces the omp default" || bad "shared-only bind set wrong"
+"$gen" --shared-state agent:/home/dev/.config/agent --out "$root/shared-path.yaml" "$repo" 2>/dev/null
+grep -qx "        target: '/home/dev/.config/agent'" "$root/shared-path.yaml" &&
+	grep -qx "        source: '$HESTIA_STATE_ROOT/shared/agent'" "$root/shared-path.yaml" &&
+	ok "--shared-state NAME:PATH uses the given container path" || bad "shared NAME:PATH wrong"
+docker compose -f "$root/shared.yaml" config >/dev/null 2>&1 &&
+	ok "compose file with shared state is valid" || bad "shared compose file invalid"
+# Output without the flag is unchanged (main.yaml predates every shared leg).
+"$gen" --out "$root/default-a.yaml" "$repo" 2>/dev/null
+cmp -s "$root/default-a.yaml" "$root/main.yaml" && ok "output without the flag is unchanged" || bad "default output changed"
+if "$gen" --shared-state ../escape --out "$root/sbad.yaml" "$repo" >/dev/null 2>"$root/sbad.err"; then
+	bad "--shared-state name cannot escape the shared directory"
+else
+	grep -q -- "--shared-state expects NAME" "$root/sbad.err" &&
+		ok "--shared-state name cannot escape the shared directory" || bad "unclear error: $(cat "$root/sbad.err")"
+fi
+if "$gen" --state a:/home/dev/.one --shared-state b:/home/dev/.one --out "$root/sdup.yaml" "$repo" >/dev/null 2>&1; then
+	bad "--state and --shared-state on one target rejected"
+else
+	ok "--state and --shared-state on one target rejected"
+fi
+if "$gen" --shared-state a:/home/dev/.one --shared-state b:/home/dev/.one/ --out "$root/sdup.yaml" "$repo" >/dev/null 2>&1; then
+	bad "two --shared-state specs on one target rejected"
+else
+	ok "two --shared-state specs on one target rejected"
+fi
+for target in /home/dev /home/dev/.local/share/mise /opt/hestia/pi /usr/local/bin /hestia/cache "$repo" "$HESTIA_STATE_ROOT/$ws_id" '/home/dev/.pi/../x' /; do
+	if "$gen" --shared-state "x:$target" --out "$root/sres.yaml" "$repo" >/dev/null 2>&1; then
+		bad "--shared-state target $target rejected"
+	else
+		ok "--shared-state target $target rejected"
+	fi
+done
+[ ! -e "$root/sbad.yaml" ] && [ ! -e "$root/sdup.yaml" ] && [ ! -e "$root/sres.yaml" ] &&
+	ok "rejected shared specs wrote no file" || bad "a rejected shared spec wrote a file"
+if HESTIA_STATE_ROOT="$root/fresh-shared" "$gen" --shared-state "x:/usr/local/bin" --out "$root/fresh2.yaml" "$repo" >/dev/null 2>&1; then
+	bad "reserved shared target on a fresh state root rejected"
+else
+	[ ! -e "$root/fresh-shared" ] && ok "reserved shared target on a fresh state root wrote nothing" || bad "refused shared target created state"
+fi
+
 echo "== host/container agreement (through the generated compose file) =="
 status_host="$(git -C "$repo" status --porcelain=v2)"
 status_ctr="$(docker compose -f "$root/main.yaml" run --rm workspace git status --porcelain=v2 2>"$root/status.err")" || {

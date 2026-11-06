@@ -3,10 +3,11 @@
 #
 # Launches a synthetic checkout through a symlink to the launcher (as when it
 # is on PATH) with `-- --version` instead of the TUI: the Compose file lands
-# beside the state directory (out of the container's reach) with pi state and a MISE_TRUSTED_CONFIG_PATHS scoped to
-# the checkout, a second launch reuses the same running container, and mise in
-# the container trusts the checkout's mise.toml without `mise trust` (but not
-# other directories).
+# beside the state directory (out of the container's reach) with pi's shared
+# home and a MISE_TRUSTED_CONFIG_PATHS scoped to the checkout, a second launch
+# reuses the same running container, and mise in the container trusts the
+# checkout's mise.toml without `mise trust` (but not other directories). A second checkout under the same state root shares ~/.pi
+# (login once per user) without seeing the first workspace's state directory.
 #
 # Needs a reachable Docker daemon and the default image hestia-pi:local (the
 # launcher builds it on first use; this test never builds it) and prints SKIP
@@ -40,6 +41,8 @@ mkdir -p "$tmp_base"
 root="$(cd -P "$(mktemp -d "$tmp_base/hestia-launcher-XXXXXXXX")" && pwd)"
 compose=""
 ws_id=""
+compose2=""
+ws_id2=""
 pass=0
 fail=0
 ok() {
@@ -52,11 +55,15 @@ bad() {
 }
 
 cleanup() {
-	if [ -n "$compose" ] && [ -f "$compose" ]; then
-		"$life" remove-runtime "$compose" >/dev/null 2>&1 || true
-		docker compose -f "$compose" down --remove-orphans >/dev/null 2>&1 || true
-		docker volume rm "${ws_id}_linux-caches" >/dev/null 2>&1 || true
-	fi
+	local c w
+	for c in "$compose:$ws_id" "$compose2:$ws_id2"; do
+		w="${c##*:}"
+		c="${c%:*}"
+		[ -n "$c" ] && [ -f "$c" ] || continue
+		"$life" remove-runtime "$c" >/dev/null 2>&1 || true
+		docker compose -f "$c" down --remove-orphans >/dev/null 2>&1 || true
+		docker volume rm "${w}_linux-caches" >/dev/null 2>&1 || true
+	done
 	if [ "$fail" -gt 0 ] || [ "${KEEP_ARTIFACTS:-0}" = "1" ]; then
 		echo "preserving artifacts for inspection: $root" >&2
 		return 0
@@ -83,7 +90,8 @@ ws_id="$("$here/identity/workspace-id.sh" "$repo" | sed -n 's/^workspace: //p')"
 compose="$HESTIA_STATE_ROOT/$ws_id.compose.yaml"
 [ -f "$compose" ] && ok "Compose file is beside the workspace state directory" || bad "no $compose"
 grep -qF "wrote $compose" "$root/run1.log" && ok "launcher names the generated Compose file" || bad "Compose path not reported"
-grep -qF "target: '/home/dev/.pi'" "$compose" && ok "pi state is bound" || bad "pi state bind missing"
+grep -qF "source: '$HESTIA_STATE_ROOT/shared/pi'" "$compose" &&
+	grep -qF "target: '/home/dev/.pi'" "$compose" && ok "pi's shared home is bound" || bad "pi shared bind missing"
 grep -qF "MISE_TRUSTED_CONFIG_PATHS: '$repo'" "$compose" &&
 	[ "$(grep -c MISE_TRUSTED_CONFIG_PATHS "$compose")" -eq 1 ] &&
 	ok "mise trust is scoped to exactly the checkout" || bad "MISE_TRUSTED_CONFIG_PATHS not scoped"
@@ -106,6 +114,27 @@ printf '%s' "$out" | grep -q 'HESTIA_PROBE=trusted' &&
 out="$("$life" attach "$compose" sh -c 'mkdir -p /tmp/other && cd /tmp/other && printf "[env]\nX=\"1\"\n" >mise.toml && mise env' 2>&1)" && other=0 || other=1
 { [ "$other" -eq 1 ] && printf '%s' "$out" | grep -q 'not trusted'; } &&
 	ok "other directories stay untrusted" || bad "other directory was trusted: $out"
+
+echo "== second checkout shares pi's home =="
+repo2="$root/repo2"
+mkdir "$repo2"
+git -C "$repo2" init -q
+(cd "$repo2" && "$root/hestia-link" -- --version) >"$root/run3.log" 2>&1 &&
+	ok "second checkout launches" || bad "second launch failed: $(cat "$root/run3.log")"
+ws_id2="$("$here/identity/workspace-id.sh" "$repo2" | sed -n 's/^workspace: //p')"
+compose2="$HESTIA_STATE_ROOT/$ws_id2.compose.yaml"
+[ "$ws_id" != "$ws_id2" ] && [ -f "$compose2" ] && ok "second checkout is its own workspace" || bad "no distinct workspace for repo2"
+"$life" attach "$compose" sh -c 'echo shared-login >~/.pi/probe' &&
+	[ "$("$life" attach "$compose2" cat /home/dev/.pi/probe)" = shared-login ] &&
+	ok "a file written in one workspace's ~/.pi is visible in the other" || bad "the pi home is not shared"
+[ "$(cat "$HESTIA_STATE_ROOT/shared/pi/probe")" = shared-login ] &&
+	ok "it lives in <state-root>/shared/pi on the host" || bad "probe not in the shared directory"
+"$life" attach "$compose" test -e "$HESTIA_STATE_ROOT/$ws_id2" >/dev/null 2>&1 &&
+	bad "workspace 1 sees workspace 2's state dir" || ok "workspace 1 cannot see workspace 2's state dir"
+"$life" attach "$compose2" test -e "$HESTIA_STATE_ROOT/$ws_id" >/dev/null 2>&1 &&
+	bad "workspace 2 sees workspace 1's state dir" || ok "workspace 2 cannot see workspace 1's state dir"
+"$life" attach "$compose" test -e "$HESTIA_STATE_ROOT/shared" >/dev/null 2>&1 &&
+	bad "the shared dir is reachable at its host path" || ok "only ~/.pi is bound, not the shared directory's host path"
 
 echo "== not a checkout =="
 mkdir "$root/plain"
