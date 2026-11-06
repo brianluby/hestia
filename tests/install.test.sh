@@ -41,8 +41,20 @@ ln -sfn "$root/unrelated/hestia" "$HOME/.local/bin/hestia"
 run "$HOME/.local/bin:$base" >/dev/null && bad "unrelated */hestia link replaced" || { [ "$(readlink "$HOME/.local/bin/hestia")" = "$root/unrelated/hestia" ] && ok "a link to an unrelated */hestia is refused"; }
 rm "$HOME/.local/bin/hestia"
 run "$HOME/.local/bin:$base" >/dev/null
-out="$(run /usr/bin:/bin)"
+nodocker="$root/nodocker"
+mkdir -p "$nodocker"
+for t in bash dirname basename readlink ln; do ln -s "$(command -v "$t")" "$nodocker/$t"; done
+out="$(run "$nodocker")"
 printf '%s' "$out" | grep -q 'Docker is not installed' && ok "missing Docker is a warning" || bad "no missing-Docker warning"
+
+echo "== an earlier hestia on PATH =="
+early="$root/early"
+mkdir -p "$early"
+printf '#!/bin/sh\n' >"$early/hestia"
+chmod +x "$early/hestia"
+if out="$(run "$early:$HOME/.local/bin:$base")"; then bad "installer reported success while $early/hestia shadows it"; else
+	printf '%s' "$out" | grep -q "$early/hestia comes first on your PATH" && ok "an earlier hestia on PATH fails the install with its path" || bad "unclear shadowing error: $out"
+fi
 
 echo "== a foreign hestia is never overwritten =="
 rm "$HOME/.local/bin/hestia"

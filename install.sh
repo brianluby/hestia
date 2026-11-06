@@ -49,4 +49,10 @@ if [ -e "$link" ] || [ -L "$link" ]; then
 fi
 ln -sfn "$here/hestia" "$link"
 echo "installed $link -> $here/hestia"
+# Success means typing `hestia` runs this link, not an earlier one on PATH.
+first="$(command -v hestia || true)"
+if [ "$first" != "$link" ]; then
+	echo "install: $first comes first on your PATH and will run instead of $link; remove it or put $dir earlier on PATH, then re-run" >&2
+	exit 1
+fi
 echo "next: cd <your repository> && hestia      update: git -C $here pull"
