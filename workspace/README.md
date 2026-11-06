@@ -6,6 +6,19 @@
 checkout. It is a helper, not a Hestia command: the output is an ordinary
 Compose file for `docker compose -f ... run workspace ...`.
 
+## Quick start (launcher)
+
+`hestia [<checkout-path>] [-- <agent args>...]` at the repository root
+(ADR-006 step 2) runs the steps below for you: it builds `hestia-pi:local` from
+the `pi` target if that image is missing (never pulls or rebuilds it), generates
+`<state-root>/<workspace-id>.compose.yaml` with `--state pi` and
+`MISE_TRUSTED_CONFIG_PATHS=<checkout>` (trusting only that checkout's mise
+configuration). The file sits beside the state directory, not in it, because
+that directory is writable from the container. It then runs
+`workspace-lifecycle.sh start` (a no-op while running) and `attach <file> pi`. It prints the `wrote <file>` line, and the same file works
+with the lifecycle helpers. Symlink it onto `PATH`; it resolves its own
+location. Tested by [hestia-launcher.test.sh](../tests/hestia-launcher.test.sh).
+
 ## Usage
 
 ```sh
